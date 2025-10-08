@@ -24,6 +24,10 @@ impl OrderListener {
 
 #[async_trait]
 impl Component for OrderListener {
+    fn name() -> &'static str {
+        "OrderListener"
+    }
+
     async fn initialize(&self) -> Result<()> {
         tracing::info!("Initializing");
         Ok(())
@@ -32,33 +36,13 @@ impl Component for OrderListener {
     async fn start(&self, event_bus: Arc<EventBus>, mut shutdown_rx: Receiver<()>) -> Result<()> {
         tracing::info!("Starting");
 
-        let order_store_clone = self.order_store.clone();
-        let event_bus_clone = event_bus.clone();
-
-        // Subscribe to events and handle them
-        let mut receiver = event_bus.subscribe();
-        let mut shutdown_rx_event = shutdown_rx.resubscribe();
-        tokio::spawn(async move {
-            loop {
-                tokio::select! {
-                    _ = shutdown_rx_event.recv() => {
-                        tracing::info!("Event handler received shutdown signal");
-                        break;
-                    }
-                    result = receiver.recv() => {
-                        match result {
-                            Ok(event) => {
-                                let store = order_store_clone.read().await;
-                                if let Err(e) = store.handle_event(event).await {
-                                    tracing::error!("Failed to handle event: {}", e);
-                                }
-                            }
-                            Err(e) => {
-                                tracing::error!("Error receiving event: {}", e);
-                            }
-                        }
-                    }
-                }
+        // Task to handle events
+        let order_store = self.order_store.clone();
+        Self::spawn_event_handler(event_bus.clone(), shutdown_rx.resubscribe(), move |event| {
+            let store = order_store.clone();
+            async move {
+                let store = store.read().await;
+                store.handle_event(event).await
             }
         });
 
@@ -91,7 +75,7 @@ impl Component for OrderListener {
 
                         tracing::info!("Creating order {}", event.order_id,);
 
-                        if let Err(e) = event_bus_clone
+                        if let Err(e) = event_bus
                             .publish(Arc::new(OrderEvent::Created(event)))
                             .await
                         {

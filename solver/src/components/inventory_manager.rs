@@ -4,6 +4,7 @@ use tokio::sync::broadcast;
 
 use crate::components::Component;
 use crate::error::Result;
+use crate::events::{EventHandler, OrderEvent};
 use crate::EventBus;
 
 /// Component that listens to new orders created
@@ -16,7 +17,19 @@ impl InventoryManager {
 }
 
 #[async_trait]
+impl EventHandler for InventoryManager {
+    async fn handle_event(&self, _event: Arc<OrderEvent>) -> Result<()> {
+        // TODO: Implement inventory management logic
+        Ok(())
+    }
+}
+
+#[async_trait]
 impl Component for InventoryManager {
+    fn name() -> &'static str {
+        "InventoryManager"
+    }
+
     async fn initialize(&self) -> Result<()> {
         tracing::info!("Initializing");
         Ok(())
@@ -24,14 +37,14 @@ impl Component for InventoryManager {
 
     async fn start(
         &self,
-        _event_bus: Arc<EventBus>,
-        mut shutdown_rx: broadcast::Receiver<()>,
+        event_bus: Arc<EventBus>,
+        shutdown_rx: broadcast::Receiver<()>,
     ) -> Result<()> {
         tracing::info!("Starting");
 
-        tokio::spawn(async move {
-            let _ = shutdown_rx.recv().await;
-            tracing::info!("Received shutdown signal");
+        Self::spawn_event_handler(event_bus, shutdown_rx, |_event| async move {
+            // TODO: Implement inventory management logic
+            Ok(())
         });
 
         Ok(())
