@@ -10,12 +10,12 @@ pub enum SolverEvent {
     Stop,
 
     // Order events
-    Created(OrderCreatedEvent),
-    Fill(OrderFillEvent),
-    Rejected(OrderRejectEvent),
-    CancelRequest(OrderCancelRequestEvent),
-    RefundClaimed(OrderRefundClaimedEvent),
-    Completed(OrderCompletedEvent),
+    OrderCreated(OrderCreatedEvent),
+    OrderFill(OrderFillEvent),
+    OrderRejected(OrderRejectEvent),
+    OrderCancelRequest(OrderCancelRequestEvent),
+    OrderRefundClaimed(OrderRefundClaimedEvent),
+    OrderCompleted(OrderCompletedEvent),
 
     // Inventory events
     RequestRebalance(RequestRebalance),

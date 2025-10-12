@@ -3,17 +3,19 @@ use std::sync::Arc;
 use tokio::sync::RwLock;
 
 use crate::error::Result;
-use crate::events::{EventHandler, SolverEvent};
-use crate::stores::OrderStore;
+use crate::events::{EventHandler, EventProcessor, OrderRejectEvent, SolverEvent};
+use crate::stores::{AssetStore, OrderStore};
 
 pub struct OrderProcessor {
     order_store: Arc<RwLock<OrderStore>>,
+    asset_store: Arc<RwLock<AssetStore>>,
 }
 
 impl OrderProcessor {
-    pub fn new() -> Self {
+    pub fn new(liquidity_api_url: String) -> Self {
         Self {
             order_store: Arc::new(RwLock::new(OrderStore::new())),
+            asset_store: Arc::new(RwLock::new(AssetStore::new(liquidity_api_url))),
         }
     }
 }
@@ -25,10 +27,34 @@ impl EventHandler for OrderProcessor {
     }
 
     async fn initialize(&self) -> Result<()> {
+        self.order_store.write().await.initialize().await?;
+        self.asset_store.write().await.initialize().await?;
         Ok(())
     }
 
-    async fn handle_event(&self, _event: Arc<SolverEvent>) -> Result<Arc<Vec<SolverEvent>>> {
-        Ok(Arc::new(vec![]))
+    async fn handle_event(&self, event: SolverEvent) -> Result<Vec<SolverEvent>> {
+        let store = self.order_store.read().await;
+        store.handle_event(event.clone()).await;
+
+        match event {
+            SolverEvent::OrderCreated(e) => {
+                let asset_store = self.asset_store.read().await;
+                let destination_asset = (*asset_store)
+                    .get_asset(e.order.token_out, e.order.dest_chain_id)
+                    .await?;
+
+                if destination_asset.is_none() {
+                    return Ok(vec![SolverEvent::OrderRejected(OrderRejectEvent::new(
+                        e.order_id,
+                        "Asset not supported".to_string(),
+                    ))]);
+                }
+
+                // Handle order
+            }
+            _ => {}
+        }
+
+        Ok(vec![])
     }
 }

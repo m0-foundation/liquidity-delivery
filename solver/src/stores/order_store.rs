@@ -6,7 +6,7 @@ use std::sync::Arc;
 use tokio::sync::RwLock;
 
 use crate::error::{Result, SolverError};
-use crate::events::{EventHandler, SolverEvent};
+use crate::events::{EventProcessor, SolverEvent};
 
 #[derive(Debug, Clone)]
 pub struct Order {
@@ -72,7 +72,7 @@ impl OrderStore {
 }
 
 #[async_trait]
-impl EventHandler for OrderStore {
+impl EventProcessor for OrderStore {
     fn name(&self) -> &'static str {
         "OrderStore"
     }
@@ -81,11 +81,11 @@ impl EventHandler for OrderStore {
         Ok(())
     }
 
-    async fn handle_event(&self, event: Arc<SolverEvent>) -> Result<Arc<Vec<SolverEvent>>> {
+    async fn handle_event(&self, event: SolverEvent) -> Result<()> {
         let mut orders = self.orders.write().await;
 
-        match event.as_ref() {
-            SolverEvent::Created(e) => {
+        match event {
+            SolverEvent::OrderCreated(e) => {
                 let order = Order {
                     id: e.order_id.clone(),
                     state: OrderState::Created,
@@ -94,7 +94,7 @@ impl EventHandler for OrderStore {
                 };
                 orders.insert(order.id.clone(), order);
             }
-            SolverEvent::Fill(e) => {
+            SolverEvent::OrderFill(e) => {
                 let order = orders
                     .get_mut(&e.order_id)
                     .ok_or_else(|| SolverError::OrderNotFound(e.order_id.to_string()))?;
@@ -106,21 +106,21 @@ impl EventHandler for OrderStore {
                     order.state = OrderState::Filled;
                 }
             }
-            SolverEvent::Rejected(e) => {
+            SolverEvent::OrderRejected(e) => {
                 let order = orders
                     .get_mut(&e.order_id)
                     .ok_or_else(|| SolverError::OrderNotFound(e.order_id.clone()))?;
 
                 order.state = OrderState::Rejected;
             }
-            SolverEvent::CancelRequest(e) => {
+            SolverEvent::OrderCancelRequest(e) => {
                 let order = orders
                     .get_mut(&e.order_id)
                     .ok_or_else(|| SolverError::OrderNotFound(e.order_id.clone()))?;
 
                 order.state = OrderState::Cancelled;
             }
-            SolverEvent::RefundClaimed(e) => {
+            SolverEvent::OrderRefundClaimed(e) => {
                 if let Some(order) = orders.get_mut(&e.order_id) {
                     order.state = OrderState::Rejected;
                 }
@@ -131,7 +131,7 @@ impl EventHandler for OrderStore {
                     e.sender
                 );
             }
-            SolverEvent::Completed(e) => {
+            SolverEvent::OrderCompleted(e) => {
                 if let Some(order) = orders.get_mut(&e.order_id) {
                     order.state = OrderState::Completed;
                 }
@@ -139,6 +139,6 @@ impl EventHandler for OrderStore {
             _ => {}
         }
 
-        Ok(Arc::new(vec![]))
+        Ok(())
     }
 }

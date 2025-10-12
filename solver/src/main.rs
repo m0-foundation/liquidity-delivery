@@ -48,17 +48,11 @@ async fn main() -> Result<(), Box<dyn Error>> {
     let (shutdown_tx, _) = broadcast::channel::<()>(1);
 
     // Initialize components
-    let evm_listener = Arc::new(EvmEventListener::new(
-        event_bus.clone(),
-        config.chains.clone(),
-    ));
-    let svm_listener = Arc::new(SvmEventListener::new(
-        event_bus.clone(),
-        config.chains.clone(),
-        config.network,
-    ));
-    let order_processor = Arc::new(OrderProcessor::new());
-    let inventory_manager = Arc::new(InventoryManager::new());
+    let evm_listener = EvmEventListener::new(event_bus.clone(), config.chains.clone());
+    let svm_listener =
+        SvmEventListener::new(event_bus.clone(), config.chains.clone(), config.network);
+    let order_processor = OrderProcessor::new(config.liquidity_api_url.clone());
+    let inventory_manager = InventoryManager::new();
 
     // Initialize all components
     evm_listener.initialize().await?;
@@ -67,15 +61,11 @@ async fn main() -> Result<(), Box<dyn Error>> {
     inventory_manager.initialize().await?;
 
     // Spawn handlers for all components
-    let evm_listener_clone = evm_listener.clone();
     spawn_event_handler(
         evm_listener.name(),
         event_bus.clone(),
         shutdown_tx.subscribe(),
-        move |event| {
-            let listener = evm_listener_clone.clone();
-            async move { listener.handle_event(event).await }
-        },
+        move |event| async move { evm_listener.handle_event(event).await },
     );
 
     tracing::info!("All components started");
@@ -84,7 +74,7 @@ async fn main() -> Result<(), Box<dyn Error>> {
     tokio::signal::ctrl_c().await?;
     tracing::info!("Received shutdown signal");
     let _ = shutdown_tx.send(());
-    event_bus.publish(Arc::new(SolverEvent::Stop)).await;
+    event_bus.publish(SolverEvent::Stop).await;
 
     // Wait for components to shutdown gracefully
     tokio::time::sleep(tokio::time::Duration::from_secs(5)).await;
@@ -98,8 +88,8 @@ fn spawn_event_handler<F, Fut>(
     mut shutdown_rx: Receiver<()>,
     handler: F,
 ) where
-    F: Fn(Arc<SolverEvent>) -> Fut + Send + 'static,
-    Fut: Future<Output = Result<Arc<Vec<SolverEvent>>, SolverError>> + Send + 'static,
+    F: Fn(SolverEvent) -> Fut + Send + 'static,
+    Fut: Future<Output = Result<Vec<SolverEvent>, SolverError>> + Send + 'static,
 {
     tokio::spawn(async move {
         let mut receiver = event_bus.subscribe();
@@ -115,7 +105,7 @@ fn spawn_event_handler<F, Fut>(
                             match handler(event).await {
                                 Ok(new_events) => {
                                     for new_event in new_events.iter() {
-                                        if let Err(e) = event_bus.publish(Arc::new(new_event.clone())).await {
+                                        if let Err(e) = event_bus.publish(new_event.clone()).await {
                                             tracing::error!("Failed to publish event from {}: {}", component_name, e);
                                         }
                                     }

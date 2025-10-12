@@ -1,4 +1,4 @@
-use alloy::primitives::Address;
+use alloy::primitives::{Address, Log, LogData};
 use alloy::providers::{Provider, ProviderBuilder, WsConnect};
 use alloy::rpc::types::Filter;
 use alloy::sol_types::SolEvent;
@@ -7,15 +7,15 @@ use futures_util::StreamExt;
 use order_book::OrderData;
 use std::str::FromStr;
 use std::sync::Arc;
-use tokio::sync::broadcast::Receiver;
 use tokio::sync::RwLock;
+use tokio::task::JoinHandle;
 
 use crate::config::ChainConfig;
 use crate::error::{Result, SolverError};
 use crate::events::{
-    CancelRequest, EventBus, EventHandler, Fill, OrderCancelRequestEvent, OrderCompleted,
-    OrderCompletedEvent, OrderCreatedEvent, OrderFillEvent, OrderOpen, OrderRefundClaimedEvent,
-    RefundClaimed, SolverEvent,
+    CancelRequest, EventBus, EventHandler, EventProcessor, Fill, OrderCancelRequestEvent,
+    OrderCompleted, OrderCompletedEvent, OrderCreatedEvent, OrderFillEvent, OrderOpen,
+    OrderRefundClaimedEvent, RefundClaimed, SolverEvent,
 };
 use crate::stores::OrderStore;
 
@@ -24,19 +24,53 @@ pub struct EvmEventListener {
     event_bus: Arc<EventBus>,
     order_store: Arc<RwLock<OrderStore>>,
     chains: Vec<ChainConfig>,
+    task_handles: Arc<RwLock<Vec<JoinHandle<()>>>>,
+}
+
+#[async_trait]
+impl EventHandler for EvmEventListener {
+    fn name(&self) -> &'static str {
+        "EvmEventListener"
+    }
+
+    async fn initialize(&self) -> Result<()> {
+        Ok(())
+    }
+
+    async fn handle_event(&self, event: SolverEvent) -> Result<Vec<SolverEvent>> {
+        let store = self.order_store.read().await;
+        store.handle_event(event.clone()).await;
+
+        match event {
+            SolverEvent::Start => {
+                for chain in self.chains.iter() {
+                    self.start_event_listener(chain);
+                }
+            }
+            SolverEvent::Stop => {
+                let mut handles = self.task_handles.write().await;
+                for handle in handles.drain(..) {
+                    handle.abort();
+                }
+            }
+            _ => {}
+        }
+
+        Ok(vec![])
+    }
 }
 
 impl EvmEventListener {
     pub fn new(event_bus: Arc<EventBus>, chains: Vec<ChainConfig>) -> Self {
         Self {
+            task_handles: Arc::new(RwLock::new(Vec::new())),
             order_store: Arc::new(RwLock::new(OrderStore::new())),
             chains,
             event_bus,
         }
     }
 
-    /// Start listening to events on a single chain
-    async fn listen_to_chain(&self, chain: ChainConfig) -> Result<()> {
+    async fn start_event_listener(&self, chain: &ChainConfig) -> Result<()> {
         let chain_id = chain.chain_id;
         tracing::info!(
             "Starting listener for chain {} at {}",
@@ -44,7 +78,6 @@ impl EvmEventListener {
             chain.order_book_address
         );
 
-        // Use WebSocket if available, otherwise fall back to HTTP polling
         let ws_url = chain.ws_url.as_ref().unwrap_or(&chain.rpc_url);
 
         // Parse the OrderBook contract address
@@ -77,59 +110,70 @@ impl EvmEventListener {
         })?;
 
         let mut stream = sub.into_stream();
+        let event_bus = self.event_bus.clone();
 
-        tokio::spawn(async move {
+        let handle = tokio::spawn(async move {
             loop {
                 if let Some(log) = stream.next().await {
-                    if let Err(e) = self.process_log(chain_id, &log).await {
-                        tracing::error!("Error processing log on chain {}: {}", chain_id, e);
+                    match Self::process_log(chain_id, &log) {
+                        Ok(Some(event)) => {
+                            tracing::info!("Publishing event from chain {}: {:?}", chain_id, event);
+                            event_bus.publish(event).await;
+                        }
+                        Ok(None) => (),
+                        Err(e) => {
+                            tracing::error!("Error processing log on chain {}: {}", chain_id, e);
+                        }
                     }
                 }
             }
+        });
+
+        // Store the task handle so we can abort it later
+        let task_handles = self.task_handles.clone();
+        tokio::spawn(async move {
+            let mut handles = task_handles.write().await;
+            handles.push(handle);
         });
 
         Ok(())
     }
 
     /// Process a single log entry and publish corresponding event
-    async fn process_log(&self, chain_id: u32, log: &alloy::rpc::types::Log) -> Result<()> {
+    fn process_log(chain_id: u32, log: &alloy::rpc::types::Log) -> Result<Option<SolverEvent>> {
         let topics = &log.topics();
 
         if topics.is_empty() {
-            return Ok(());
+            return Ok(None);
         }
 
         let event_signature = topics[0];
 
-        // Convert alloy::rpc::types::Log to alloy::primitives::Log for decoding
-        let log_data = alloy::primitives::Log {
+        // Convert alloy::rpc::types::Log to Log for decoding
+        let log_data = Log {
             address: Address::from_slice(log.address().as_slice()),
-            data: alloy::primitives::LogData::new(log.topics().to_vec(), log.data().data.clone())
+            data: LogData::new(log.topics().to_vec(), log.data().data.clone())
                 .ok_or_else(|| SolverError::Component("Invalid log data".to_string()))?,
         };
 
         // Match on event signature and decode
         if event_signature == OrderOpen::SIGNATURE_HASH {
-            self.handle_order_open(chain_id, &log_data).await?;
+            return Ok(Some(Self::handle_order_open(chain_id, &log_data)?));
         } else if event_signature == Fill::SIGNATURE_HASH {
-            self.handle_fill(&log_data).await?;
+            return Ok(Some(Self::handle_fill(&log_data)?));
         } else if event_signature == CancelRequest::SIGNATURE_HASH {
-            self.handle_cancel_request(&log_data).await?;
+            return Ok(Some(Self::handle_cancel_request(&log_data)?));
         } else if event_signature == RefundClaimed::SIGNATURE_HASH {
-            self.handle_refund_claimed(&log_data).await?;
+            return Ok(Some(Self::handle_refund_claimed(&log_data)?));
         } else if event_signature == OrderCompleted::SIGNATURE_HASH {
-            self.handle_order_completed(&log_data).await?;
+            return Ok(Some(Self::handle_order_completed(&log_data)?));
         }
 
-        Ok(())
+        Ok(None)
     }
 
     /// Handle OrderOpen event
-    async fn handle_order_open(
-        chain_id: u32,
-        log: &alloy::primitives::Log,
-        event_bus: &Arc<EventBus>,
-    ) -> Result<()> {
+    fn handle_order_open(chain_id: u32, log: &Log) -> Result<SolverEvent> {
         let event = OrderOpen::decode_log(log)
             .map_err(|e| SolverError::Component(format!("Failed to decode OrderOpen: {}", e)))?;
 
@@ -152,153 +196,55 @@ impl EvmEventListener {
             solver: event.solver.into(),
         };
 
-        let order_event = OrderCreatedEvent::new(order);
-
-        event_bus
-            .publish(Arc::new(SolverEvent::Created(order_event)))
-            .await
-            .map_err(|e| SolverError::EventBus(e.to_string()))?;
-
-        Ok(())
+        Ok(SolverEvent::OrderCreated(OrderCreatedEvent::new(order)))
     }
 
     /// Handle Fill event
-    async fn handle_fill(log: &alloy::primitives::Log, event_bus: &Arc<EventBus>) -> Result<()> {
+    fn handle_fill(log: &Log) -> Result<SolverEvent> {
         let event = Fill::decode_log(log)
             .map_err(|e| SolverError::Component(format!("Failed to decode Fill: {}", e)))?;
-
-        tracing::info!(
-            "Fill event: orderId={:?}, amountOutFilled={}",
-            event.orderId,
-            event.amountOutFilled
-        );
 
         let order_id = format!("{:x}", event.orderId);
         let fill_event = OrderFillEvent::new(order_id, event.amountOutFilled);
 
-        event_bus
-            .publish(Arc::new(SolverEvent::Fill(fill_event)))
-            .await
-            .map_err(|e| SolverError::EventBus(e.to_string()))?;
-
-        Ok(())
+        Ok(SolverEvent::OrderFill(fill_event))
     }
 
     /// Handle CancelRequest event
-    async fn handle_cancel_request(
-        log: &alloy::primitives::Log,
-        event_bus: &Arc<EventBus>,
-    ) -> Result<()> {
+    fn handle_cancel_request(log: &Log) -> Result<SolverEvent> {
         let event = CancelRequest::decode_log(log).map_err(|e| {
             SolverError::Component(format!("Failed to decode CancelRequest: {}", e))
         })?;
-
-        tracing::info!(
-            "CancelRequest event: orderId={:?}, newFillDeadline={}",
-            event.orderId,
-            event.newFillDeadline
-        );
 
         let order_id = format!("{:x}", event.orderId);
         let cancel_event =
             OrderCancelRequestEvent::new(order_id, event.newFillDeadline.to::<u64>());
 
-        event_bus
-            .publish(Arc::new(SolverEvent::CancelRequest(cancel_event)))
-            .await
-            .map_err(|e| SolverError::EventBus(e.to_string()))?;
-
-        Ok(())
+        Ok(SolverEvent::OrderCancelRequest(cancel_event))
     }
 
     /// Handle RefundClaimed event
-    async fn handle_refund_claimed(
-        log: &alloy::primitives::Log,
-        event_bus: &Arc<EventBus>,
-    ) -> Result<()> {
+    fn handle_refund_claimed(log: &Log) -> Result<SolverEvent> {
         let event = RefundClaimed::decode_log(log).map_err(|e| {
             SolverError::Component(format!("Failed to decode RefundClaimed: {}", e))
         })?;
-
-        tracing::info!(
-            "RefundClaimed event: orderId={:?}, sender={:?}, amountInRefunded={}",
-            event.orderId,
-            event.sender,
-            event.amountInRefunded
-        );
 
         let order_id = format!("{:x}", event.orderId);
         let sender = format!("{:?}", event.sender);
         let refund_event = OrderRefundClaimedEvent::new(order_id, sender, event.amountInRefunded);
 
-        event_bus
-            .publish(Arc::new(SolverEvent::RefundClaimed(refund_event)))
-            .await
-            .map_err(|e| SolverError::EventBus(e.to_string()))?;
-
-        Ok(())
+        Ok(SolverEvent::OrderRefundClaimed(refund_event))
     }
 
     /// Handle OrderCompleted event
-    async fn handle_order_completed(
-        log: &alloy::primitives::Log,
-        event_bus: &Arc<EventBus>,
-    ) -> Result<()> {
+    fn handle_order_completed(log: &Log) -> Result<SolverEvent> {
         let event = OrderCompleted::decode_log(log).map_err(|e| {
             SolverError::Component(format!("Failed to decode OrderCompleted: {}", e))
         })?;
 
-        tracing::info!("OrderCompleted event: orderId={:?}", event.orderId);
-
         let order_id = format!("{:x}", event.orderId);
         let completed_event = OrderCompletedEvent::new(order_id);
 
-        event_bus
-            .publish(Arc::new(SolverEvent::Completed(completed_event)))
-            .await
-            .map_err(|e| SolverError::EventBus(e.to_string()))?;
-
-        Ok(())
-    }
-
-    async fn start_event_listeners(&self) -> Result<()> {
-        for chain in self.chains.clone() {
-            tokio::spawn(async move {
-                if let Err(e) = self::listen_to_chain(chain.clone(), chain_event_bus).await {
-                    tracing::error!(
-                        "Failed to start listener for chain {}: {}",
-                        chain.chain_id,
-                        e
-                    );
-                }
-            });
-        }
-
-        Ok(())
-    }
-}
-
-#[async_trait]
-impl EventHandler for EvmEventListener {
-    fn name(&self) -> &'static str {
-        "EvmEventListener"
-    }
-
-    async fn initialize(&self) -> Result<()> {
-        Ok(())
-    }
-
-    async fn handle_event(&self, event: Arc<SolverEvent>) -> Result<Arc<Vec<SolverEvent>>> {
-        let store = self.order_store.read().await;
-        store.handle_event(event.clone()).await;
-
-        match event.as_ref() {
-            SolverEvent::Start => {
-                self.start_event_listeners();
-            }
-            _ => {}
-        }
-
-        Ok(Arc::new(vec![]))
+        Ok(SolverEvent::OrderCompleted(completed_event))
     }
 }

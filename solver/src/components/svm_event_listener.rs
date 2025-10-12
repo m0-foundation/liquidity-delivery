@@ -6,10 +6,11 @@ use order_book::{OrderData, OrderOpened};
 use std::str::FromStr;
 use std::sync::Arc;
 use tokio::sync::RwLock;
+use tokio::task::JoinHandle;
 
 use crate::config::{self, ChainConfig};
 use crate::error::Result;
-use crate::events::{EventBus, EventHandler, OrderCreatedEvent, SolverEvent};
+use crate::events::{EventBus, EventHandler, EventProcessor, OrderCreatedEvent, SolverEvent};
 use crate::stores::OrderStore;
 
 pub struct SvmEventListener {
@@ -17,6 +18,7 @@ pub struct SvmEventListener {
     order_store: Arc<RwLock<OrderStore>>,
     chains: Vec<ChainConfig>,
     cluster: config::Network,
+    task_handles: Arc<RwLock<Vec<JoinHandle<()>>>>,
 }
 
 impl SvmEventListener {
@@ -26,6 +28,7 @@ impl SvmEventListener {
         cluster: config::Network,
     ) -> Self {
         Self {
+            task_handles: Arc::new(RwLock::new(Vec::new())),
             order_store: Arc::new(RwLock::new(OrderStore::new())),
             chains,
             cluster,
@@ -44,20 +47,26 @@ impl EventHandler for SvmEventListener {
         Ok(())
     }
 
-    async fn handle_event(&self, event: Arc<SolverEvent>) -> Result<Arc<Vec<SolverEvent>>> {
+    async fn handle_event(&self, event: SolverEvent) -> Result<Vec<SolverEvent>> {
         let store = self.order_store.read().await;
         store.handle_event(event.clone()).await;
 
-        match event.as_ref() {
+        match event {
             SolverEvent::Start => {
                 for chain in self.chains.iter() {
                     self.start_event_listener(chain);
                 }
             }
+            SolverEvent::Stop => {
+                let mut handles = self.task_handles.write().await;
+                for handle in handles.drain(..) {
+                    handle.abort();
+                }
+            }
             _ => {}
         }
 
-        Ok(Arc::new(vec![]))
+        Ok(vec![])
     }
 }
 
@@ -68,7 +77,7 @@ impl SvmEventListener {
         let chain_id = chain.chain_id.clone();
         let order_book_address = chain.order_book_address.clone();
 
-        tokio::spawn(async move {
+        let handle = tokio::spawn(async move {
             let c = Cluster::from_str(&cluster.to_string()).unwrap();
             let client = Client::new(c, Arc::new(Keypair::new()));
             let chain_id_clone = chain_id.clone();
@@ -77,7 +86,7 @@ impl SvmEventListener {
                 .program(Pubkey::from_str(&order_book_address).unwrap())
                 .unwrap();
 
-            let unsubscribe = program
+            program
                 .on::<OrderOpened>(move |ctx, event| {
                     tracing::info!(
                         "OrderOpen event on chain {}: orderId={:?}: signature: {}",
@@ -105,7 +114,7 @@ impl SvmEventListener {
                     let chain_id_for_error = chain_id.clone();
                     tokio::spawn(async move {
                         if let Err(e) = event_bus_clone
-                            .publish(Arc::new(SolverEvent::Created(order_event)))
+                            .publish(SolverEvent::OrderCreated(order_event))
                             .await
                         {
                             tracing::error!(
@@ -116,7 +125,15 @@ impl SvmEventListener {
                         }
                     });
                 })
-                .await;
+                .await
+                .unwrap();
+        });
+
+        // Store the task handle so we can abort it later
+        let task_handles = self.task_handles.clone();
+        tokio::spawn(async move {
+            let mut handles = task_handles.write().await;
+            handles.push(handle);
         });
     }
 }

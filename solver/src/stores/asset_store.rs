@@ -1,17 +1,24 @@
+use anchor_client::solana_sdk::bs58;
 use async_trait::async_trait;
-use m0_liquidity_sdk::types::{Asset, AssetAddress};
+use m0_liquidity_sdk::types::{Asset, Chain};
 use m0_liquidity_sdk::Client;
 use std::collections::HashMap;
 use std::sync::Arc;
 use tokio::sync::RwLock;
 
 use crate::error::{Result, SolverError};
-use crate::events::{EventHandler, SolverEvent};
+use crate::events::{EventProcessor, SolverEvent};
 
 /// Event store for tracking order status
 pub struct AssetStore {
-    assets: Arc<RwLock<HashMap<AssetAddress, Asset>>>,
+    assets: Arc<RwLock<HashMap<AssetKey, Asset>>>,
     liquidity_api_url: String,
+}
+
+#[derive(Hash, Eq, PartialEq, Clone)]
+struct AssetKey {
+    address: [u8; 32],
+    chain_id: u32,
 }
 
 impl AssetStore {
@@ -21,10 +28,50 @@ impl AssetStore {
             liquidity_api_url,
         }
     }
+
+    pub async fn get_asset(&self, address: [u8; 32], chain_id: u32) -> Result<Option<Asset>> {
+        let assets = self.assets.read().await;
+        Ok(assets.get(&AssetKey { address, chain_id }).cloned())
+    }
+
+    fn chain_id(chain: Chain) -> u32 {
+        match chain {
+            Chain::Ethereum => todo!(),
+            Chain::Solana => todo!(),
+            Chain::Arbitrum => todo!(),
+            Chain::Optimism => todo!(),
+            Chain::Base => todo!(),
+            Chain::Linea => todo!(),
+            Chain::Fogo => todo!(),
+            Chain::Sepolia => todo!(),
+            Chain::ArbitrumSepolia => todo!(),
+        }
+    }
+
+    fn parse_address(chain: Chain, address: String) -> [u8; 32] {
+        if chain == Chain::Solana {
+            let bytes = bs58::decode(address)
+                .into_vec()
+                .expect("Invalid base58 in Solana asset address");
+
+            let len = bytes.len().min(32);
+            let mut addr = [0u8; 32];
+            addr[..len].copy_from_slice(&bytes[..len]);
+            addr
+        } else {
+            let bytes = hex::decode(address.trim_start_matches("0x"))
+                .expect("Invalid hex in asset address");
+
+            let len = bytes.len().min(32);
+            let mut addr = [0u8; 32];
+            addr[32 - len..].copy_from_slice(&bytes[..len]);
+            addr
+        }
+    }
 }
 
 #[async_trait]
-impl EventHandler for AssetStore {
+impl EventProcessor for AssetStore {
     fn name(&self) -> &'static str {
         "AssetStore"
     }
@@ -42,9 +89,9 @@ impl EventHandler for AssetStore {
 
         for asset in response.into_inner() {
             assets.insert(
-                AssetAddress {
-                    chain: asset.chain.clone(),
-                    address: asset.address.clone(),
+                AssetKey {
+                    chain_id: Self::chain_id(asset.chain),
+                    address: Self::parse_address(asset.chain, asset.address.clone()),
                 },
                 asset,
             );
@@ -53,7 +100,7 @@ impl EventHandler for AssetStore {
         Ok(())
     }
 
-    async fn handle_event(&self, _event: Arc<SolverEvent>) -> Result<Arc<Vec<SolverEvent>>> {
-        Ok(Arc::new(vec![]))
+    async fn handle_event(&self, _event: SolverEvent) -> Result<()> {
+        Ok(())
     }
 }

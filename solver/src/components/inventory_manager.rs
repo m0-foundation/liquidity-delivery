@@ -1,5 +1,4 @@
 use async_trait::async_trait;
-use std::sync::Arc;
 
 use crate::error::Result;
 use crate::events::{EventHandler, SolverEvent};
@@ -24,7 +23,7 @@ impl EventHandler for InventoryManager {
         Ok(())
     }
 
-    async fn handle_event(&self, _event: Arc<SolverEvent>) -> Result<Arc<Vec<SolverEvent>>> {
-        Ok(Arc::new(vec![]))
+    async fn handle_event(&self, _event: SolverEvent) -> Result<Vec<SolverEvent>> {
+        Ok(vec![])
     }
 }
