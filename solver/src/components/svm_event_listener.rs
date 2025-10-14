@@ -2,6 +2,7 @@ use anchor_client::solana_sdk::pubkey::Pubkey;
 use anchor_client::solana_sdk::signature::Keypair;
 use anchor_client::{Client, Cluster};
 use async_trait::async_trait;
+use m0_liquidity_sdk::types::ChainRuntime;
 use order_book::{OrderData, OrderOpened};
 use std::str::FromStr;
 use std::sync::Arc;
@@ -12,6 +13,7 @@ use crate::config::{self, ChainConfig};
 use crate::error::Result;
 use crate::events::{EventBus, EventHandler, EventProcessor, OrderCreatedEvent, SolverEvent};
 use crate::stores::OrderStore;
+use crate::utils::chain_runtime;
 
 pub struct SvmEventListener {
     event_bus: Arc<EventBus>,
@@ -72,6 +74,10 @@ impl EventHandler for SvmEventListener {
 
 impl SvmEventListener {
     fn start_event_listener(&self, chain: &ChainConfig) {
+        if chain_runtime(chain.chain_id) != ChainRuntime::Svm {
+            return;
+        }
+
         let cluster = self.cluster.clone();
         let event_bus = self.event_bus.clone();
         let chain_id = chain.chain_id.clone();
@@ -87,7 +93,7 @@ impl SvmEventListener {
                 .unwrap();
 
             program
-                .on::<OrderOpened>(move |ctx, event| {
+                .on::<OrderOpened>(move |_ctx, event| {
                     let order = OrderData {
                         version: 0, // TODO: Get from contract or config
                         origin_chain_id: chain_id_clone.clone(),

@@ -4,6 +4,7 @@ use alloy::rpc::types::Filter;
 use alloy::sol_types::SolEvent;
 use async_trait::async_trait;
 use futures_util::StreamExt;
+use m0_liquidity_sdk::types::ChainRuntime;
 use order_book::OrderData;
 use std::str::FromStr;
 use std::sync::Arc;
@@ -18,6 +19,7 @@ use crate::events::{
     OrderRefundClaimedEvent, RefundClaimed, SolverEvent,
 };
 use crate::stores::OrderStore;
+use crate::utils::chain_runtime;
 
 /// Component that listens to new orders created on multiple EVM chains
 pub struct EvmEventListener {
@@ -46,9 +48,9 @@ impl EventHandler for EvmEventListener {
                 for chain in self.chains.iter() {
                     if let Err(e) = self.start_event_listener(&chain).await {
                         tracing::error!(
-                            "Failed to start event listener for {}: {}",
-                            chain.chain_id,
-                            e
+                            chain_id = ?chain.chain_id,
+                            error = ?e,
+                            "Failed to start event listener",
                         );
                     }
                 }
@@ -79,6 +81,10 @@ impl EvmEventListener {
     async fn start_event_listener(&self, chain: &ChainConfig) -> Result<()> {
         let chain_id = chain.chain_id;
 
+        if chain_runtime(chain_id) != ChainRuntime::Evm {
+            return Ok(());
+        }
+
         // Parse the OrderBook contract address
         let contract_address = Address::from_str(&chain.order_book_address)
             .map_err(|e| SolverError::Component(format!("Invalid contract address: {}", e)))?;
@@ -107,6 +113,12 @@ impl EvmEventListener {
                 chain_id, e
             ))
         })?;
+
+        tracing::info!(
+            "Started event listener for chain {} at {}",
+            chain_id,
+            chain.ws_url
+        );
 
         let mut stream = sub.into_stream();
         let event_bus = self.event_bus.clone();

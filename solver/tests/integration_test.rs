@@ -5,7 +5,7 @@ use alloy::{
     sol,
 };
 use solver::Config;
-use std::{env, time::Duration};
+use std::time::Duration;
 use tokio::time::sleep;
 use tracing::level_filters::LevelFilter;
 use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt};
@@ -46,6 +46,9 @@ async fn test_create_order() {
     let shutdown_tx = solver::run_solver(config)
         .await
         .expect("Failed to start solver");
+
+    // Let the solver boot up
+    sleep(Duration::from_secs(1)).await;
 
     let builder = contract.openOrder(OnchainOrderParams {
         tokenIn: hex!("0x1c7D4B196Cb0C7B01d743Fbc6116a902379C7238").into(),

@@ -8,8 +8,11 @@ mod utils;
 use components::{EvmEventListener, InventoryManager};
 pub use config::Config;
 use events::EventBus;
-use std::{error::Error, future::Future, sync::Arc};
-use tokio::sync::broadcast::{self, Receiver};
+use std::{error::Error, future::Future, sync::Arc, time::Duration};
+use tokio::{
+    sync::broadcast::{self, Receiver},
+    time::sleep,
+};
 
 use crate::{
     components::{OrderProcessor, SvmEventListener},
@@ -61,7 +64,10 @@ pub async fn run_solver(config: Config) -> Result<broadcast::Sender<()>, Box<dyn
     register_component(&inventory_manager, &event_bus, &shutdown_tx);
     register_component(&event_logger, &event_bus, &shutdown_tx);
 
+    // Give spawned tasks time to subscribe before publishing Start event
+    sleep(Duration::from_millis(100)).await;
     tracing::info!("All components registered");
+
     let _ = event_bus.publish(SolverEvent::Start).await;
 
     Ok(shutdown_tx)

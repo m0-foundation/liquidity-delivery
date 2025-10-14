@@ -1,4 +1,4 @@
-use m0_liquidity_sdk::types::Chain;
+use m0_liquidity_sdk::types::{Chain, ChainRuntime};
 
 pub fn chain_id(chain: Chain) -> u32 {
     match chain {
@@ -26,4 +26,12 @@ pub fn supported_chains() -> Vec<Chain> {
         Chain::Sepolia,
         Chain::ArbitrumSepolia,
     ]
+}
+
+pub fn chain_runtime(chain_id: u32) -> ChainRuntime {
+    if chain_id == 4294967295 || chain_id == 4294967294 {
+        ChainRuntime::Svm
+    } else {
+        ChainRuntime::Evm
+    }
 }
