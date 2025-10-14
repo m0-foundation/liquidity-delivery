@@ -19,10 +19,6 @@ impl Environment {
             _ => Err(ConfigError::InvalidEnvironment(s.to_string())),
         }
     }
-
-    pub fn is_production(&self) -> bool {
-        matches!(self, Environment::Production)
-    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]

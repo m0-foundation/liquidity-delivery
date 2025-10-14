@@ -1,5 +1,4 @@
 use crate::error::Result;
-use std::fmt;
 use tokio::sync::broadcast;
 
 use super::events::SolverEvent;
@@ -32,11 +31,5 @@ impl Clone for EventBus {
         Self {
             sender: self.sender.clone(),
         }
-    }
-}
-
-impl fmt::Debug for EventBus {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        f.debug_struct("EventBus").finish()
     }
 }

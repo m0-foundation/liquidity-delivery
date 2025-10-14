@@ -111,20 +111,29 @@ fn spawn_event_handler<F, Fut>(
                     break;
                 },
                 result = receiver.recv() => {
-                    match result {
-                        Ok(event) => {
-                            match handler(event).await {
-                                Ok(new_events) => {
-                                    for new_event in new_events.iter() {
-                                        if let Err(e) = event_bus.publish(new_event.clone()).await {
-                                            tracing::error!("Failed to publish event from {}: {}", component_name, e);
-                                        }
-                                    }
-                                }
-                                Err(e) => tracing::error!("{} failed to handle event: {}", component_name, e),
-                            }
+                    // Early continue on receive error
+                    let event = match result {
+                        Ok(event) => event,
+                        Err(e) => {
+                            tracing::error!("Error receiving event on {}: {}", component_name, e);
+                            continue;
                         }
-                        Err(e) =>  tracing::error!("Error receiving event on {}: {}", component_name, e)
+                    };
+
+                    // Handle event and get new events
+                    let new_events = match handler(event).await {
+                        Ok(events) => events,
+                        Err(e) => {
+                            tracing::error!("{} failed to handle event: {}", component_name, e);
+                            continue;
+                        }
+                    };
+
+                    // Publish new events
+                    for new_event in new_events {
+                        if let Err(e) = event_bus.publish(new_event).await {
+                            tracing::error!("Failed to publish event from {}: {}", component_name, e);
+                        }
                     }
                 }
             }

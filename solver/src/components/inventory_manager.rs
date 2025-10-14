@@ -3,7 +3,6 @@ use async_trait::async_trait;
 use crate::error::Result;
 use crate::events::{EventHandler, SolverEvent};
 
-/// Component that listens to new orders created
 pub struct InventoryManager {}
 
 impl InventoryManager {

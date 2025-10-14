@@ -1,4 +1,4 @@
-use solver::config::Config;
+use solver::config::{Config, Environment};
 use std::error::Error;
 use tracing_subscriber::layer::SubscriberExt;
 use tracing_subscriber::util::SubscriberInitExt;
@@ -8,7 +8,7 @@ async fn main() -> Result<(), Box<dyn Error>> {
     let _ = dotenvy::dotenv();
     let config = Config::from_env()?;
 
-    if config.environment.is_production() {
+    if config.environment == Environment::Production {
         // JSON format for production
         tracing_subscriber::registry()
             .with(tracing_subscriber::fmt::layer().json())

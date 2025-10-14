@@ -157,7 +157,6 @@ impl EvmEventListener {
         Ok(())
     }
 
-    /// Process a single log entry and publish corresponding event
     fn process_log(chain_id: u32, log: &alloy::rpc::types::Log) -> Result<Option<SolverEvent>> {
         let topics = &log.topics();
 
@@ -190,7 +189,6 @@ impl EvmEventListener {
         Ok(None)
     }
 
-    /// Handle OrderOpen event
     fn handle_order_open(chain_id: u32, log: &Log) -> Result<SolverEvent> {
         let event = OrderOpen::decode_log(log)
             .map_err(|e| SolverError::Component(format!("Failed to decode OrderOpen: {}", e)))?;
@@ -211,7 +209,6 @@ impl EvmEventListener {
         Ok(SolverEvent::OrderCreated(OrderCreatedEvent::new(order)))
     }
 
-    /// Handle Fill event
     fn handle_fill(log: &Log) -> Result<SolverEvent> {
         let event = Fill::decode_log(log)
             .map_err(|e| SolverError::Component(format!("Failed to decode Fill: {}", e)))?;
@@ -222,7 +219,6 @@ impl EvmEventListener {
         Ok(SolverEvent::OrderFill(fill_event))
     }
 
-    /// Handle CancelRequest event
     fn handle_cancel_request(log: &Log) -> Result<SolverEvent> {
         let event = CancelRequest::decode_log(log).map_err(|e| {
             SolverError::Component(format!("Failed to decode CancelRequest: {}", e))
@@ -235,7 +231,6 @@ impl EvmEventListener {
         Ok(SolverEvent::OrderCancelRequest(cancel_event))
     }
 
-    /// Handle RefundClaimed event
     fn handle_refund_claimed(log: &Log) -> Result<SolverEvent> {
         let event = RefundClaimed::decode_log(log).map_err(|e| {
             SolverError::Component(format!("Failed to decode RefundClaimed: {}", e))
@@ -248,7 +243,6 @@ impl EvmEventListener {
         Ok(SolverEvent::OrderRefundClaimed(refund_event))
     }
 
-    /// Handle OrderCompleted event
     fn handle_order_completed(log: &Log) -> Result<SolverEvent> {
         let event = OrderCompleted::decode_log(log).map_err(|e| {
             SolverError::Component(format!("Failed to decode OrderCompleted: {}", e))
