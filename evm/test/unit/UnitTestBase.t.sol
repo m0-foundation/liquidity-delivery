@@ -4,10 +4,13 @@ pragma solidity 0.8.26;
 import { Test } from "../../lib/forge-std/src/Test.sol";
 
 import { OrderBook, IOrderBook } from "../../src/OrderBook.sol";
+import { TypeConverter } from "../../src/libs/TypeConverter.sol";
 import { MockMessenger } from "../mock/MockMessenger.t.sol";
 import { MockERC20 } from "../mock/MockERC20.t.sol";
 
 abstract contract UnitTestBase is Test {
+    using TypeConverter for *;
+
     OrderBook internal orderBook;
     MockMessenger internal messenger;
 
@@ -41,7 +44,7 @@ abstract contract UnitTestBase is Test {
 
         // Create users
         for (uint256 i = 0; i < USER_COUNT; i++) {
-            users[i] = address(uint160(uint256(keccak256(abi.encodePacked("user", i + 1)))));
+            users[i] = keccak256(abi.encodePacked("user", i + 1)).toAddress();
         }
 
         // Deal eth and tokens to users
@@ -57,12 +60,82 @@ abstract contract UnitTestBase is Test {
         params = IOrderBook.OnchainOrderParams({
             tokenIn: address(tokens[0]),
             destChainId: DEST_CHAIN_ID,
-            tokenOut: bytes32(uint256(uint160(address(tokens[1])))),
+            tokenOut: address(tokens[1]).toBytes32(),
             amountIn: AMOUNT_IN,
             amountOut: AMOUNT_OUT,
-            recipient: bytes32(uint256(uint160(users[0]))),
+            recipient: users[0].toBytes32(),
             fillDeadline: uint40(block.timestamp) + FILL_DURATION,
-            solver: bytes32(uint256(uint160(users[2])))
+            solver: users[2].toBytes32()
         });
+    }
+
+    // =========== Helper Functions ========== //
+
+    function _getOrderIdFromParams(address sender_, uint64 nonce_, IOrderBook.OnchainOrderParams memory params_) internal view returns (bytes32) {
+        return orderBook.getOrderId(IOrderBook.OrderData({
+            version: 1,
+            originChainId: CHAIN_ID,
+            sender: sender_.toBytes32(),
+            nonce: nonce_,
+            destChainId: params_.destChainId,
+            fillDeadline: params_.fillDeadline,
+            amountOut: params_.amountOut,
+            tokenOut: params_.tokenOut,
+            recipient: params_.recipient,
+            solver: params_.solver
+        }));
+    }
+
+    modifier from(address user_) {
+        vm.startPrank(user_);
+        _;
+        vm.stopPrank();
+    }
+
+    function _placeOrder(address sender_, IOrderBook.OnchainOrderParams memory params_) internal from(sender_) returns (bytes32) {
+        tokens[0].approve(address(orderBook), uint256(params_.amountIn));
+        bytes32 orderId_ = orderBook.openOrder(params_);
+
+        return orderId_;
+    }
+
+    function _fillOrder(address solver_, bytes32 orderId_) internal from(solver_) {
+        // Get the order data
+        IOrderBook.Order memory order = orderBook.getOrder(orderId_);
+        MockERC20(order.tokenOut.toAddress()).approve(address(orderBook), type(uint128).max);
+
+        orderBook.fillOrder(
+            orderId_, 
+            IOrderBook.OrderData({
+                version: order.version,
+                originChainId: CHAIN_ID,
+                sender: order.sender.toBytes32(),
+                nonce: order.nonce,
+                destChainId: order.destChainId,
+                fillDeadline: order.fillDeadline,
+                amountOut: order.amountOut,
+                tokenOut: order.tokenOut,
+                recipient: order.recipient,
+                solver: order.solver
+            }),
+            IOrderBook.FillParams({
+                amountOutToFill: order.amountOut,
+                originRecipient: order.solver
+            })
+        );
+    }
+
+    function _reportFill(
+        bytes32 orderId_, 
+        uint128 amountOutFilled_, 
+        address solver_
+    ) internal {
+        // Report the fill back to the origin chain
+        vm.prank(address(messenger));
+        orderBook.reportFill(IOrderBook.FillReport({
+            orderId: orderId_,
+            amountOutFilled: amountOutFilled_,
+            originRecipient: solver_.toBytes32()
+        }));
     }
 }
