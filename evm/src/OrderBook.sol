@@ -267,7 +267,7 @@ contract OrderBook is IOrderBook, OrderBookStorageLayout, AccessControlUpgradeab
         uint128 inToRelease_ = order.amountOut == report_.amountOutFilled ? order.amountIn : ((uint256(order.amountIn) * report_.amountOutFilled) / order.amountOut).toUint128();
 
         // Transfer the corresponding amount of origin tokens to the filler
-        IERC20(order.tokenIn).transferFrom(address(this), report_.originRecipient.toAddress(), uint256(inToRelease_));
+        IERC20(order.tokenIn).transfer(report_.originRecipient.toAddress(), uint256(inToRelease_));
     }
 
     // ========== Admin Functions ========== //
