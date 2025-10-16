@@ -7,13 +7,14 @@ interface IOrderBook {
     // ========== Events ========== //
     event OrderOpen(bytes32 orderId, address tokenIn, uint128 amountIn, uint32 indexed destChainId, bytes32 indexed tokenOut, uint128 amountOut, bytes32 indexed solver);
     event Fill(bytes32 orderId, address indexed solver, uint128 amountOutFilled);
-    event CancelRequest(bytes32 orderId, uint40 newFillDeadline);
+    event CancelRequested(bytes32 orderId, uint40 newFillDeadline);
     event RefundClaimed(bytes32 orderId, address indexed sender, uint128 amountInRefunded);
     event OrderCompleted(bytes32 orderId);
 
     // ========== Errors ========== //
     error AmountInZero();
     error AmountOutZero();
+    error FinalityPending();
     error InvalidDeadline();
     error InvalidDestinationChain();
     error InvalidFinalityBuffer();
@@ -23,7 +24,6 @@ interface IOrderBook {
     error OrderExpired();
     error OrderFilled();
     error OrderIdMismatch();
-    error RefundPending();
 
     // ========== Structs and Enums ========== //
     struct OnchainOrderParams {
@@ -63,6 +63,7 @@ interface IOrderBook {
         uint16 version; // version of the contract
         uint32 destChainId;
         uint40 fillDeadline; // timestamp by which the order must be filled on the destination chain
+        uint40 refundRequestedAt; // timestamp when the refund was requested, 0 if no refund requested
         uint64 nonce; // a counter tied to the sender to allow unique
         address tokenIn;
         bytes32 tokenOut;

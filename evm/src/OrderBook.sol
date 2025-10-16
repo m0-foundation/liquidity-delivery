@@ -97,6 +97,7 @@ contract OrderBook is IOrderBook, OrderBookStorageLayout, AccessControlUpgradeab
             version: VERSION, // origin contract version
             status: OrderStatus.Created,
             destChainId: orderParams_.destChainId,
+            refundRequestedAt: uint40(0),
             fillDeadline: orderParams_.fillDeadline,
             nonce: nonce_,
             tokenIn: orderParams_.tokenIn,
@@ -130,12 +131,11 @@ contract OrderBook is IOrderBook, OrderBookStorageLayout, AccessControlUpgradeab
         // Mark the order as cancel requested
         order.status = OrderStatus.CancelRequested;
 
-        // Set the fill deadline to the current time
+        // Set the refundRequestedAt timestamp to the current time
         // This will allow the caller to claim a refund after the finality buffer has passed
-        // TODO it might be better to add a different variable so we aren't changing one used in the order ID derivation
-        order.fillDeadline = uint40(block.timestamp); // can't overflow until year 36812
+        order.refundRequestedAt = uint40(block.timestamp); // can't overflow until year 36812
 
-        emit CancelRequest(orderId_, order.fillDeadline);
+        emit CancelRequested(orderId_, order.refundRequestedAt);
     }
 
 
@@ -147,16 +147,24 @@ contract OrderBook is IOrderBook, OrderBookStorageLayout, AccessControlUpgradeab
         Order storage order = $.localOrders[orderId_];
 
         // Validate that the order can be refunded
-        if (order.status != OrderStatus.Created && order.status != OrderStatus.CancelRequested) revert InvalidOrderStatus();
-
-        // Check that the fill deadline + finality buffer has passed
-        uint40 finalityBuffer_ = $.destinations[order.destChainId].finalityBuffer;
-        if (uint256(order.fillDeadline) + finalityBuffer_ >= block.timestamp) revert RefundPending();
+        // If the order is local, the finality buffer is 0
+        uint40 finalityBuffer_ = order.destChainId == chainId ? 0 : $.destinations[order.destChainId].finalityBuffer;
+        if (order.status == OrderStatus.Created) {
+            // If the order is still in Created status, it can only be refunded if the fill deadline + finality buffer has passed
+            if (uint256(order.fillDeadline) + finalityBuffer_ >= block.timestamp) revert FinalityPending();
+        } else if (order.status == OrderStatus.CancelRequested) {
+            // If the order is in CancelRequested status, it can only be refunded if the refund was requested at least finality buffer ago
+            if (uint256(order.refundRequestedAt) + finalityBuffer_ >= block.timestamp) revert FinalityPending();
+        } else {
+            // If the order is in any other status, it cannot be refunded
+            revert InvalidOrderStatus();
+        }
 
         // Calculate the refund amount
         uint128 outFilled_ = $.orderAmountOutFilled[orderId_];
         uint128 outRemaining_ = order.amountOut - outFilled_;
 
+        // TODO shouldn't need this check, but leaving for now
         if (outRemaining_ == 0) revert OrderFilled();
 
         // TODO need to think about rounding and precision loss with different token decimal values
@@ -252,9 +260,9 @@ contract OrderBook is IOrderBook, OrderBookStorageLayout, AccessControlUpgradeab
         Order storage order = $.localOrders[report_.orderId];
 
         // Validate the fill report and sender
-        if (order.status != OrderStatus.Created && order.status != OrderStatus.CancelRequested) revert InvalidOrderStatus();
         if (msg.sender != messenger) revert NotAuthorized();
-
+        if (order.status != OrderStatus.Created && order.status != OrderStatus.CancelRequested) revert InvalidOrderStatus();
+        
         // Update the fill amount for the order
         uint128 outFilled = ($.orderAmountOutFilled[report_.orderId] += report_.amountOutFilled);
         if (outFilled == order.amountOut) {
