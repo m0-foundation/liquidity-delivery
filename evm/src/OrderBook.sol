@@ -3,6 +3,7 @@ pragma solidity 0.8.26;
 
 import { IERC20 } from "../lib/common/src/interfaces/IERC20.sol";
 import { AccessControlUpgradeable } from "../lib/common/lib/openzeppelin-contracts-upgradeable/contracts/access/AccessControlUpgradeable.sol";
+import { ERC712ExtendedUpgradeable } from "../lib/common/src/ERC712ExtendedUpgradeable.sol";
 
 import { IOrderBook } from "./interfaces/IOrderBook.sol";
 import { IMessenger } from "./interfaces/IMessenger.sol";
@@ -35,15 +36,17 @@ abstract contract OrderBookStorageLayout {
     }
 }
 
-contract OrderBook is IOrderBook, OrderBookStorageLayout, AccessControlUpgradeable {
+contract OrderBook is IOrderBook, OrderBookStorageLayout, AccessControlUpgradeable, ERC712ExtendedUpgradeable {
     using TypeConverter for *;
 
     // ========== State Variables ========== //
 
-    // TODO add proxy storage configuration
-
     /// @notice Version of the limit order system
     uint16 public constant VERSION = 1;
+
+    /// @notice the type hash used for gasless order submission
+    /// @dev keccak256("GaslessOrderParams(uint32 originChainId,address tokenIn,uint32 destChainId,uint128 amountIn,uint128 amountOut,address sender,bytes32 recipient,uint40 openDeadline,uint40 fillDeadline,bytes32 solver)")
+    bytes32 public constant GASLESS_ORDER_TYPEHASH = 0xb92a85c378d8070874bdbc3157612525c745e3714640049872848bf1a261b5e8;
 
     /// @notice the chain ID of this chain according to the messaging network used by this contract
     uint32 public immutable chainId; 
@@ -56,18 +59,53 @@ contract OrderBook is IOrderBook, OrderBookStorageLayout, AccessControlUpgradeab
     // mapping(address => uint32) public messengerOriginId;// messenger contract address => this chain's origin ID for that messenger (it can be different for different messaging networks)
     // mapping(uint32 => address) public chainMessenger; // chain ID => contract to use for sending messages to and receiving messages from that chain
 
-    // ========== Constructor ========== //
+    /* ========== Construct and Initialize ========== */
 
     constructor(uint32 chainId_, address messenger_) {
         chainId = chainId_;
         messenger = messenger_;
     }
 
-    // ========== Initiating Orders ========== //
+    function initialize() external initializer {
+        __ERC712ExtendedUpgradeable_init("M0 OrderBook");
+    }
 
-    function openOrder(OnchainOrderParams calldata orderParams_) external override returns (bytes32) {
+    /* ========== Initiating Orders ========== */
+
+    /// @inheritdoc IOrderBook
+    function openOrder(OrderParams calldata orderParams_) external override returns (bytes32) {
+        return _openOrder(msg.sender, orderParams_);
+    }
+
+    /// @inheritdoc IOrderBook
+    function openOrderFor(
+        GaslessOrderParams calldata orderParams_,
+        bytes calldata signature_
+    ) external override returns (bytes32) {
+        // Verify signature
+        _revertIfInvalidSignature(orderParams_.sender, _getDigest(_getGaslessOrderInternalDigest(orderParams_)), signature_);
+
+        // Verify origin chain and sender nonce
+        if (orderParams_.originChainId != chainId) revert InvalidOriginChain();
+        OrderBookStorageStruct storage $ = _getOrderBookStorageLocation();
+        // Requiring a nonce in the order provides replay protection for the sender
+        if (orderParams_.nonce != $.senderNonces[orderParams_.sender]) revert InvalidNonce();
+
+        // Open order on behalf of the sender
+        return _openOrder(orderParams_.sender, OrderParams({
+            destChainId: orderParams_.destChainId,
+            tokenIn: orderParams_.tokenIn,
+            tokenOut: orderParams_.tokenOut,
+            amountIn: orderParams_.amountIn,
+            amountOut: orderParams_.amountOut,
+            recipient: orderParams_.recipient,
+            fillDeadline: orderParams_.fillDeadline,
+            solver: orderParams_.solver
+        }));
+    }
+
+    function _openOrder(address sender_, OrderParams memory orderParams_) internal returns (bytes32) {
         // Validate order parameters
-
         if (uint256(orderParams_.fillDeadline) < block.timestamp) revert InvalidDeadline();
         if (orderParams_.amountIn == 0) revert AmountInZero();
         if (orderParams_.amountOut == 0) revert AmountOutZero();
@@ -78,12 +116,12 @@ contract OrderBook is IOrderBook, OrderBookStorageLayout, AccessControlUpgradeab
         if (orderParams_.destChainId != chainId && !$.destinations[orderParams_.destChainId].isSupported) revert InvalidDestinationChain();
 
         // Create order
-        uint64 nonce_ = $.senderNonces[msg.sender]++;
+        uint64 nonce_ = $.senderNonces[sender_]++;
 
         bytes32 orderId_ = getOrderId(OrderData({
             version: VERSION, // origin contract version
             originChainId: chainId,
-            sender: msg.sender.toBytes32(),
+            sender: sender_.toBytes32(),
             nonce: nonce_,
             destChainId: orderParams_.destChainId,
             fillDeadline: uint64(orderParams_.fillDeadline),
@@ -102,7 +140,7 @@ contract OrderBook is IOrderBook, OrderBookStorageLayout, AccessControlUpgradeab
             nonce: nonce_,
             tokenIn: orderParams_.tokenIn,
             tokenOut: orderParams_.tokenOut,
-            sender: msg.sender,
+            sender: sender_,
             recipient: orderParams_.recipient,
             amountIn: orderParams_.amountIn,
             amountOut: orderParams_.amountOut,
@@ -110,7 +148,7 @@ contract OrderBook is IOrderBook, OrderBookStorageLayout, AccessControlUpgradeab
         });
 
         // Transfer tokens in from the sender
-        IERC20(orderParams_.tokenIn).transferFrom(msg.sender, address(this), uint256(orderParams_.amountIn));
+        IERC20(orderParams_.tokenIn).transferFrom(sender_, address(this), uint256(orderParams_.amountIn));
 
         emit OrderOpen(orderId_, orderParams_.tokenIn, orderParams_.amountIn, orderParams_.destChainId, orderParams_.tokenOut, orderParams_.amountOut, orderParams_.solver);
 
@@ -119,6 +157,7 @@ contract OrderBook is IOrderBook, OrderBookStorageLayout, AccessControlUpgradeab
 
     // ========== Refunding Orders ========== //
 
+    /// @inheritdoc IOrderBook
     function requestCancelOrder(bytes32 orderId_) external override {
         OrderBookStorageStruct storage $ = _getOrderBookStorageLocation();
         Order storage order = $.localOrders[orderId_];
@@ -138,10 +177,7 @@ contract OrderBook is IOrderBook, OrderBookStorageLayout, AccessControlUpgradeab
         emit CancelRequested(orderId_, order.refundRequestedAt);
     }
 
-
-    // Note: this function allows anyone to trigger a refund of an order after its fill deadline + finality buffer has passed
-    // This allows applications to gracefully handle refunds for orders that weren't filled 
-    // Alternatively, if a user requested a refund, they can claim it here
+    /// @inheritdoc IOrderBook
     function claimRefund(bytes32 orderId_) external override {
         OrderBookStorageStruct storage $ = _getOrderBookStorageLocation();
         Order storage order = $.localOrders[orderId_];
@@ -186,7 +222,9 @@ contract OrderBook is IOrderBook, OrderBookStorageLayout, AccessControlUpgradeab
     }
 
 
-    // ========== Filling Orders ========== //
+    /* ========== Filling Orders ========== */
+
+    /// @inheritdoc IOrderBook
     function fillOrder(bytes32 orderId_, OrderData calldata orderData_, FillParams calldata fillerParams_) external override {
         // Validate fill data
         if (chainId != orderData_.destChainId) revert InvalidDestinationChain();
@@ -253,8 +291,9 @@ contract OrderBook is IOrderBook, OrderBookStorageLayout, AccessControlUpgradeab
         emit Fill(orderId_, msg.sender, fillAmount_);
     }
 
-    // ========== Receiving Fill Reports ========== //
+    /* ========== Receiving Fill Reports ========== */
 
+    /// @inheritdoc IOrderBook
     function reportFill(FillReport calldata report_) external override {
         OrderBookStorageStruct storage $ = _getOrderBookStorageLocation();
         Order storage order = $.localOrders[report_.orderId];
@@ -278,7 +317,7 @@ contract OrderBook is IOrderBook, OrderBookStorageLayout, AccessControlUpgradeab
         IERC20(order.tokenIn).transfer(report_.originRecipient.toAddress(), uint256(inToRelease_));
     }
 
-    // ========== Admin Functions ========== //
+    /* ========== Admin Functions ========== */
 
     function setDestinationConfig(uint32 destChainId_, bool isSupported_, uint40 finalityBuffer_) external override {
         // TODO add access control
@@ -292,8 +331,7 @@ contract OrderBook is IOrderBook, OrderBookStorageLayout, AccessControlUpgradeab
         });
     }
 
-    // =========== View Functions ========== //
-
+    /* ========== View Functions ========== */
 
     // Order IDs are unique across chains and allow using fill data to compute the identifier
     // This is useful for tracking data against orders on both the origin and destination chains
@@ -317,6 +355,11 @@ contract OrderBook is IOrderBook, OrderBookStorageLayout, AccessControlUpgradeab
         return $.localOrders[orderId_];
     }
 
+    function getAmountOutFilled(bytes32 orderId_) external view override returns (uint128) {
+        OrderBookStorageStruct storage $ = _getOrderBookStorageLocation();
+        return $.orderAmountOutFilled[orderId_];
+    }
+
     function isDestinationSupported(uint32 destChainId_) external view override returns (bool) {
         OrderBookStorageStruct storage $ = _getOrderBookStorageLocation();
         return $.destinations[destChainId_].isSupported;
@@ -325,5 +368,21 @@ contract OrderBook is IOrderBook, OrderBookStorageLayout, AccessControlUpgradeab
     function getDestinationFinalityBuffer(uint32 destChainId_) external view override returns (uint40) {
         OrderBookStorageStruct storage $ = _getOrderBookStorageLocation();
         return $.destinations[destChainId_].finalityBuffer;
+    }
+
+    function _getGaslessOrderInternalDigest(GaslessOrderParams memory orderParams_) internal pure returns (bytes32) {
+        return keccak256(abi.encode(
+            GASLESS_ORDER_TYPEHASH,
+            orderParams_.originChainId,
+            orderParams_.tokenIn,
+            orderParams_.destChainId,
+            orderParams_.amountIn,
+            orderParams_.amountOut,
+            orderParams_.sender,
+            orderParams_.nonce,
+            orderParams_.recipient,
+            orderParams_.fillDeadline,
+            orderParams_.solver
+        ));
     }
 }

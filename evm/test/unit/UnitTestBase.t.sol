@@ -26,7 +26,7 @@ abstract contract UnitTestBase is Test {
     mapping(uint256 => MockERC20) internal tokens;
     mapping(uint256 => address) internal users;
 
-    IOrderBook.OnchainOrderParams internal params;
+    IOrderBook.OrderParams internal params;
 
     function setUp() public virtual {
         messenger = new MockMessenger();
@@ -57,7 +57,7 @@ abstract contract UnitTestBase is Test {
         }
 
         // Setup the standard order params used in tests
-        params = IOrderBook.OnchainOrderParams({
+        params = IOrderBook.OrderParams({
             tokenIn: address(tokens[0]),
             destChainId: DEST_CHAIN_ID,
             tokenOut: address(tokens[1]).toBytes32(),
@@ -71,7 +71,7 @@ abstract contract UnitTestBase is Test {
 
     // =========== Helper Functions ========== //
 
-    function _getOrderIdFromParams(address sender_, uint64 nonce_, IOrderBook.OnchainOrderParams memory params_) internal view returns (bytes32) {
+    function _getOrderIdFromParams(address sender_, uint64 nonce_, IOrderBook.OrderParams memory params_) internal view returns (bytes32) {
         return orderBook.getOrderId(IOrderBook.OrderData({
             version: 1,
             originChainId: CHAIN_ID,
@@ -92,7 +92,7 @@ abstract contract UnitTestBase is Test {
         vm.stopPrank();
     }
 
-    function _placeOrder(address sender_, IOrderBook.OnchainOrderParams memory params_) internal from(sender_) returns (bytes32) {
+    function _placeOrder(address sender_, IOrderBook.OrderParams memory params_) internal from(sender_) returns (bytes32) {
         tokens[0].approve(address(orderBook), uint256(params_.amountIn));
         bytes32 orderId_ = orderBook.openOrder(params_);
 
