@@ -364,6 +364,10 @@ contract OrderBook is IOrderBook, OrderBookStorageLayout, AccessControlUpgradeab
         filledAmounts.amountOutFilled += report_.amountOutFilled;
         filledAmounts.amountInReleased += report_.amountInToRelease;
 
+        // Validate that the filled amounts do not exceed the order amounts
+        if (filledAmounts.amountOutFilled > order.amountOut || filledAmounts.amountInReleased > order.amountIn) revert InvalidReport();
+
+        // Mark order as completed if fully filled
         if (filledAmounts.amountOutFilled == order.amountOut) {
             order.status = OrderStatus.Completed;
             emit OrderCompleted(report_.orderId);

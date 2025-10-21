@@ -15,6 +15,10 @@ contract ReportFillTest is OrderBookTestBase {
     //   [X] it reverts with an InvalidOrderStatus error
     // [X] given the order is completed
     //   [X] it reverts with an InvalidOrderStatus error
+    // [ ] given the reported amount out filled would exceed the order amount out
+    //   [ ] it reverts with an InvalidReport error
+    // [ ] given the reported amount in to release would exceed the order amount in
+    //   [ ] it reverts with an InvalidReport error
     // [X] given the order is active or cancelled
     //   [X] it updates the filled amount for the order
     //   [X] it transfers the pro-rata amount of the token in to the specified recipient
@@ -75,6 +79,38 @@ contract ReportFillTest is OrderBookTestBase {
                 orderId: orderId,
                 amountOutFilled: params.amountOut / 2,
                 amountInToRelease: params.amountIn / 2,
+                originRecipient: users[2].toBytes32()
+            })
+        );
+    }
+
+    function test_overReportAmountOut_reverts() public {
+        bytes32 orderId = _getOrderIdFromParams(users[0], 0, params);
+
+        // Try to report fill with amountOutFilled exceeding order amountOut
+        vm.prank(address(messenger));
+        vm.expectRevert(abi.encodeWithSelector(IOrderBook.InvalidReport.selector));
+        orderBook.reportFill(
+            IOrderBook.FillReport({
+                orderId: orderId,
+                amountOutFilled: params.amountOut + 1,
+                amountInToRelease: params.amountIn,
+                originRecipient: users[2].toBytes32()
+            })
+        );
+    }
+
+    function test_overReportAmountIn_reverts() public {
+        bytes32 orderId = _getOrderIdFromParams(users[0], 0, params);
+
+        // Try to report fill with amountInToRelease exceeding order amountIn
+        vm.prank(address(messenger));
+        vm.expectRevert(abi.encodeWithSelector(IOrderBook.InvalidReport.selector));
+        orderBook.reportFill(
+            IOrderBook.FillReport({
+                orderId: orderId,
+                amountOutFilled: params.amountOut,
+                amountInToRelease: params.amountIn + 1,
                 originRecipient: users[2].toBytes32()
             })
         );

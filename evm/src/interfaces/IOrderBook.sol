@@ -80,6 +80,7 @@ interface IOrderBook {
     error InvalidOrderStatus();
     error InvalidOrderVersion();
     error InvalidOriginChain();
+    error InvalidReport();
     error NotAuthorized();
     error OrderExpired();
     error OrderFilled();
@@ -258,8 +259,8 @@ interface IOrderBook {
      * @param amountInReleased Amount of input token released
      */
     struct FilledAmounts {
-        uint128 amountOutFilled;
         uint128 amountInReleased;
+        uint128 amountOutFilled;
     }
 
     /* ========== External Functions ========== */
