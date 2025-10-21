@@ -22,8 +22,10 @@ contract OpenOrderForTest is OrderBookTestBase {
     //   [X] it reverts with an InvalidNonce error
     // [ ] given the sender has not approved the orderbook contract for the tokenIn
     //   [ ] it reverts with an insufficient allowance error
-    // [ ] given the signature is a valid standard ECDSA signature
-    //   [ ] 
+    // [X] given the signature is a valid standard ECDSA signature
+    //   [X] it creates the order successfully
+    //   [X] it transfers the amount in from the "sender" to the orderbook contract
+    //   [X] it emits an OrderCreated event 
     // [ ] given the signature is a valid compact ECDSA signature
     // [ ] 
 
@@ -121,6 +123,15 @@ contract OpenOrderForTest is OrderBookTestBase {
         bytes memory signature = _signStandardECDSA(sender, gaslessParams);
 
         vm.expectRevert(abi.encodeWithSelector(IOrderBook.InvalidNonce.selector));
+        orderBook.openOrderFor(gaslessParams, signature);
+    }
+
+    function test_noApproval_reverts() public {
+        vm.prank(sender.addr);
+        tokens[0].approve(address(orderBook), 0);
+
+        bytes memory signature = _signStandardECDSA(sender, gaslessParams);
+        vm.expectRevert();
         orderBook.openOrderFor(gaslessParams, signature);
     }
 
