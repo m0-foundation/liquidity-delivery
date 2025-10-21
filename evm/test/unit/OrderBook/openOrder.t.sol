@@ -25,7 +25,7 @@ contract OpenOrderTest is OrderBookTestBase {
     //   [X] it returns the order ID
 
     function test_fillDeadlineBeforeCurrentTime_reverts() public {
-        params.fillDeadline = uint40(block.timestamp - 1);
+        params.fillDeadline = uint32(block.timestamp - 1);
         vm.prank(users[0]);
         vm.expectRevert(abi.encodeWithSelector(IOrderBook.InvalidDeadline.selector));
         orderBook.openOrder(params);

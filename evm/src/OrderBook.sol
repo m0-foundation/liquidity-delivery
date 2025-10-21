@@ -48,8 +48,8 @@ contract OrderBook is IOrderBook, OrderBookStorageLayout, AccessControlUpgradeab
     uint16 public constant VERSION = 1;
 
     /// @notice the type hash used for gasless order submission
-    /// @dev keccak256("GaslessOrderParams(uint32 originChainId,address tokenIn,uint32 destChainId,uint128 amountIn,uint128 amountOut,address sender,bytes32 recipient,uint40 openDeadline,uint40 fillDeadline,bytes32 solver)")
-    bytes32 public constant GASLESS_ORDER_TYPEHASH = 0xb92a85c378d8070874bdbc3157612525c745e3714640049872848bf1a261b5e8;
+    /// @dev keccak256("GaslessOrderParams(uint16 version,address sender,uint64 nonce,uint32 originChainId,uint32 destChainId,uint32 fillDeadline,address tokenIn,bytes32 tokenOut,uint128 amountIn,uint128 amountOut,bytes32 recipient,bytes32 solver)")
+    bytes32 public constant GASLESS_ORDER_TYPEHASH = 0xdcc220f897990a71a7c6f1069339af0681016bb96f2d791f2214e234d7029603;
 
     /// @notice the chain ID of this chain according to the messaging network used by this contract
     uint32 public immutable chainId; 
@@ -169,7 +169,7 @@ contract OrderBook is IOrderBook, OrderBookStorageLayout, AccessControlUpgradeab
             version: VERSION, // origin contract version
             status: OrderStatus.Created,
             destChainId: orderParams_.destChainId,
-            refundRequestedAt: uint40(0),
+            refundRequestedAt: uint32(0),
             fillDeadline: orderParams_.fillDeadline,
             nonce: nonce_,
             tokenIn: orderParams_.tokenIn,
@@ -232,7 +232,7 @@ contract OrderBook is IOrderBook, OrderBookStorageLayout, AccessControlUpgradeab
 
         // Set the refundRequestedAt timestamp to the current time
         // This will allow the caller to claim a refund after the finality buffer has passed
-        order.refundRequestedAt = uint40(block.timestamp); // can't overflow until year 36812
+        order.refundRequestedAt = uint32(block.timestamp); // can't overflow until year 2106 (80 years)
 
         emit CancelRequested(orderId_, order.refundRequestedAt);
     }
@@ -244,7 +244,7 @@ contract OrderBook is IOrderBook, OrderBookStorageLayout, AccessControlUpgradeab
 
         // Validate that the order can be refunded
         // If the order is local, the finality buffer is 0
-        uint40 finalityBuffer_ = order.destChainId == chainId ? 0 : $.destinations[order.destChainId].finalityBuffer;
+        uint32 finalityBuffer_ = order.destChainId == chainId ? 0 : $.destinations[order.destChainId].finalityBuffer;
         if (order.status == OrderStatus.Created) {
             // If the order is still in Created status, it can only be refunded if the fill deadline + finality buffer has passed
             if (uint256(order.fillDeadline) + finalityBuffer_ >= block.timestamp) revert FinalityPending();
@@ -379,7 +379,7 @@ contract OrderBook is IOrderBook, OrderBookStorageLayout, AccessControlUpgradeab
 
     /* ========== Admin Functions ========== */
 
-    function setDestinationConfig(uint32 destChainId_, bool isSupported_, uint40 finalityBuffer_) external override onlyRole(DEFAULT_ADMIN_ROLE) {
+    function setDestinationConfig(uint32 destChainId_, bool isSupported_, uint32 finalityBuffer_) external override onlyRole(DEFAULT_ADMIN_ROLE) {
         if (isSupported_ && finalityBuffer_ == 0) revert InvalidFinalityBuffer();
 
         OrderBookStorageStruct storage $ = _getOrderBookStorageLocation();
@@ -429,7 +429,7 @@ contract OrderBook is IOrderBook, OrderBookStorageLayout, AccessControlUpgradeab
         return $.destinations[destChainId_].isSupported;
     }
 
-    function getDestinationFinalityBuffer(uint32 destChainId_) external view override returns (uint40) {
+    function getDestinationFinalityBuffer(uint32 destChainId_) external view override returns (uint32) {
         OrderBookStorageStruct storage $ = _getOrderBookStorageLocation();
         return $.destinations[destChainId_].finalityBuffer;
     }
@@ -437,15 +437,17 @@ contract OrderBook is IOrderBook, OrderBookStorageLayout, AccessControlUpgradeab
     function getGaslessOrderDigest(GaslessOrderParams memory orderParams_) public view override returns (bytes32) {
         return _getDigest(keccak256(abi.encode(
             GASLESS_ORDER_TYPEHASH,
-            orderParams_.originChainId,
-            orderParams_.tokenIn,
-            orderParams_.destChainId,
-            orderParams_.amountIn,
-            orderParams_.amountOut,
+            orderParams_.version,
             orderParams_.sender,
             orderParams_.nonce,
-            orderParams_.recipient,
+            orderParams_.originChainId,
+            orderParams_.destChainId,
             orderParams_.fillDeadline,
+            orderParams_.tokenIn,
+            orderParams_.tokenOut,
+            orderParams_.amountIn,
+            orderParams_.amountOut,
+            orderParams_.recipient,
             orderParams_.solver
         )));
     }

@@ -46,7 +46,7 @@ interface IOrderBook {
      * @param orderId The ID of the order being cancelled
      * @param cancelRequestedAt The timestamp when the cancellation was requested
      */
-    event CancelRequested(bytes32 orderId, uint40 cancelRequestedAt);
+    event CancelRequested(bytes32 orderId, uint32 cancelRequestedAt);
 
     /**
      * @notice Emitted when a refund is claimed for an order
@@ -91,23 +91,23 @@ interface IOrderBook {
     /**
      * @notice Parameters required to open an order onchain
      * @dev Addresses on the destination chain are stored as bytes32 to support non-EVM
-     * @param tokenIn Address of the input token on this chain
      * @param destChainId Destination chain ID where the order is to be filled
+     * @param fillDeadline Timestamp by which the order must be filled on the destination chain
+     * @param tokenIn Address of the input token on this chain
      * @param tokenOut Address of the output token on the destination chain
      * @param amountIn Amount of input token provided
      * @param amountOut Amount of output token expected
      * @param recipient Address to receive the funds on the destination chain
-     * @param fillDeadline Timestamp by which the order must be filled on the destination chain
      * @param solver Address of the solver that will fill the order, or zero address if
      */
     struct OrderParams {
-        address tokenIn; 
         uint32 destChainId;
+        uint32 fillDeadline; // order can be filled up to this time, remaining funds can be refunded after this
+        address tokenIn;
         bytes32 tokenOut; // 32 bytes used for addresses to accomodate SVM chains in the network
         uint128 amountIn;
         uint128 amountOut;
         bytes32 recipient;	
-        uint40 fillDeadline; // order can be filled up to this time, remaining funds can be refunded after this
         bytes32 solver; // may be the zero address, in which case the order can be filled by any approved solver
     }
 
@@ -115,29 +115,31 @@ interface IOrderBook {
      * @notice Parameters required to open a gasless order onchain
      * @dev Addresses on the destination chain are stored as bytes32 to support non-EVM
      * @dev This payload is hashed and included as the internal digest of the EIP-712 payload required for gasless order submission
+     * @param version Version of the contract the order is created for
+     * @param sender Address that provided the funds on the origin chain, must sign the payload
+     * @param nonce Unique identifier for the order, must match the sender's next nonce on this chain
      * @param originChainId internal chain ID where the order is created (must be this chain)
-     * @param tokenIn Address of the input token on the origin chain
      * @param destChainId internal chain ID where the order is to be filled
+     * @param fillDeadline Timestamp by which the order must be filled on the destination chain
+     * @param tokenIn Address of the input token on the origin chain
      * @param tokenOut Address of the output token on the destination chain
      * @param amountIn Amount of input token provided
      * @param amountOut Amount of output token expected
-     * @param sender Address that provided the funds on the origin chain, must sign the payload
-     * @param nonce Unique identifier for the order, must match the sender's next nonce on this chain
      * @param recipient Address to receive the funds on the destination chain
-     * @param fillDeadline Timestamp by which the order must be filled on the destination chain
      * @param solver Address of the solver that will fill the order, or zero address if any approved solver can fill
      */
     struct GaslessOrderParams {
+        uint16 version;
+        address sender;
+        uint64 nonce;
         uint32 originChainId;
-        address tokenIn;
         uint32 destChainId;
+        uint32 fillDeadline;
+        address tokenIn;
         bytes32 tokenOut;
         uint128 amountIn;
         uint128 amountOut;
-        address sender;
-        uint64 nonce;
         bytes32 recipient;
-        uint40 fillDeadline;
         bytes32 solver;
     }
 
@@ -156,32 +158,32 @@ interface IOrderBook {
      * @dev Addresses on the destination chain are stored as bytes32 to support non-EVM chains
      * @param status Current status of the order
      * @param version Version of the contract when the order was created
+     * @param sender Address that provided the funds on the origin chain
+     * @param nonce A counter tied to the sender to allow unique orders
      * @param destChainId Destination chain ID where the order is to be filled
      * @param fillDeadline Timestamp by which the order must be filled on the destination chain
      * @param refundRequestedAt Timestamp when the refund was requested, 0 if no refund requested
-     * @param nonce A counter tied to the sender to allow unique orders
      * @param tokenIn Address of the input token on this chain
      * @param tokenOut Address of the output token on the destination chain
-     * @param sender Address that provided the funds on the origin chain
-     * @param recipient Address to receive the funds on the destination chain
      * @param amountIn Amount of input token provided
      * @param amountOut Amount of output token expected
+     * @param recipient Address to receive the funds on the destination chain
      * @param solver Address of the solver that will fill the order, or zero address if any approved solver can fill
      */
     struct Order {
-        OrderStatus status;
-        uint16 version;
-        uint32 destChainId;
-        uint40 fillDeadline;
-        uint40 refundRequestedAt;
-        uint64 nonce;
-        address tokenIn;
-        bytes32 tokenOut;
-        address sender; 
-        bytes32 recipient;
-        uint128 amountIn;
-        uint128 amountOut;
-        bytes32 solver;
+        OrderStatus status;         // slot 1: 1 +
+        uint16 version;             // 2 + 
+        address sender;             // 20 +
+        uint64 nonce;               // 8 = 31 bytes
+        uint32 destChainId;         // slot 2: 4 +
+        uint32 fillDeadline;        // 4 +
+        uint32 refundRequestedAt;   // 4 +
+        address tokenIn;            // 20 = 32 bytes
+        bytes32 tokenOut;           // slot 3
+        uint128 amountIn;           // slot 4: 16 +
+        uint128 amountOut;          // 16 = 32 bytes
+        bytes32 recipient;          // slot 5
+        bytes32 solver;             // slot 6
     }
 
     /**
@@ -190,27 +192,27 @@ interface IOrderBook {
      *      information to fill the order on the destination chain.
      *      The order ID is computed as the keccak256 hash of the packed-encoding of this struct.
      * @param version Version of the contract when the order was created
-     * @param originChainId internal chain ID where the order was created
      * @param sender Address that provided the funds on the origin chain
      * @param nonce A counter tied to the sender to allow unique orders
+     * @param originChainId internal chain ID where the order was created
      * @param destChainId Destination chain ID where the order is to be filled
      * @param fillDeadline Timestamp by which the order must be filled on the destination chain
+     * @param tokenOut Address of the output token on the destination chain
      * @param amountIn Amount of input token provided
      * @param amountOut Amount of output token expected on the destination chain
-     * @param tokenOut Address of the output token on the destination chain
      * @param recipient Address to receive the funds on the destination chain
      * @param solver Address of the solver that will fill the order, or zero address if any approved solver can fill
      */
     struct OrderData {
         uint16 version;
-        uint32 originChainId;
         bytes32 sender;
         uint64 nonce;
+        uint32 originChainId;
         uint32 destChainId;
         uint64 fillDeadline; 
+        bytes32 tokenOut;
         uint128 amountIn;
         uint128 amountOut;
-        bytes32 tokenOut;
         bytes32 recipient;
         bytes32 solver;
     }
@@ -220,14 +222,14 @@ interface IOrderBook {
      * @dev This struct is sent by the messenger contract to report fills that occurred
      *      on the destination chain back to the origin chain for refund processing.
      * @param orderId The ID of the order being reported
-     * @param amountOutFilled The amount of output token that was filled on the destination chain
      * @param amountInToRelease The amount of input token to release to the filler on the origin chain
+     * @param amountOutFilled The amount of output token that was filled on the destination chain
      * @param originRecipient The address on the origin chain that should receive released funds
      */
     struct FillReport {
         bytes32 orderId;
-        uint128 amountOutFilled;
         uint128 amountInToRelease;
+        uint128 amountOutFilled;
         bytes32 originRecipient;
     }
 
@@ -250,7 +252,7 @@ interface IOrderBook {
      */
     struct Destination {
         bool isSupported;
-        uint40 finalityBuffer;
+        uint32 finalityBuffer;
     }
 
     /**
@@ -400,7 +402,7 @@ interface IOrderBook {
      * @param isSupported_ whether support for the chain should be enabled (true activates, false deactivates)
      * @param finalityBuffer_ duration (in seconds) to wait for messages from the chain to be finalized after deadlines for safe processing
      */
-    function setDestinationConfig(uint32 destChainId_, bool isSupported_, uint40 finalityBuffer_) external;
+    function setDestinationConfig(uint32 destChainId_, bool isSupported_, uint32 finalityBuffer_) external;
 
     /* ========== View Functions ========== */
 
@@ -432,7 +434,7 @@ interface IOrderBook {
      * @notice Returns the configured finality buffer for the provided chain ID
      * @dev If a chain is not supported, this will return 0
      */
-    function getDestinationFinalityBuffer(uint32 destChainId_) external view returns (uint40);
+    function getDestinationFinalityBuffer(uint32 destChainId_) external view returns (uint32);
 
     function getGaslessOrderDigest(GaslessOrderParams memory params_) external view returns (bytes32);
 }

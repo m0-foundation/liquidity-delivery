@@ -23,7 +23,7 @@ abstract contract OrderBookTestBase is Test {
     uint256 internal constant MINT_AMOUNT = 100e6;
     uint128 internal constant AMOUNT_IN = 10e6;
     uint128 internal constant AMOUNT_OUT = 999e4;
-    uint40 internal constant FILL_DURATION = 1 hours;
+    uint32 internal constant FILL_DURATION = 1 hours;
 
     address internal admin;
     mapping(uint256 => MockERC20) internal tokens;
@@ -51,7 +51,7 @@ abstract contract OrderBookTestBase is Test {
         // Configure
         messenger.setOrderBook(address(orderBook));
         vm.prank(admin);
-        orderBook.setDestinationConfig(DEST_CHAIN_ID, true, uint40(10 minutes));
+        orderBook.setDestinationConfig(DEST_CHAIN_ID, true, uint32(10 minutes));
 
         // Deploy mock tokens
         for (uint256 i = 0; i < TOKEN_COUNT; i++) {
@@ -81,7 +81,7 @@ abstract contract OrderBookTestBase is Test {
             amountIn: AMOUNT_IN,
             amountOut: AMOUNT_OUT,
             recipient: users[0].toBytes32(),
-            fillDeadline: uint40(block.timestamp) + FILL_DURATION,
+            fillDeadline: uint32(block.timestamp) + FILL_DURATION,
             solver: users[2].toBytes32()
         });
     }

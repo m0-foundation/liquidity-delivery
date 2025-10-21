@@ -90,11 +90,11 @@ contract RequestCancelOrderTest is OrderBookTestBase {
         vm.warp(block.timestamp + 1 minutes); // make the timestamp non-zero
         vm.prank(users[0]);
         vm.expectEmit(true, false, false, true);
-        emit IOrderBook.CancelRequested(orderId, uint40(block.timestamp));
+        emit IOrderBook.CancelRequested(orderId, uint32(block.timestamp));
         orderBook.requestCancelOrder(orderId);
         
         IOrderBook.Order memory order = orderBook.getOrder(orderId);
         assertEq(uint8(order.status), uint8(IOrderBook.OrderStatus.CancelRequested), "order status should be CancelRequested");
-        assertEq(order.refundRequestedAt, uint40(block.timestamp), "refundRequestedAt should be updated to current block timestamp");
+        assertEq(order.refundRequestedAt, uint32(block.timestamp), "refundRequestedAt should be updated to current block timestamp");
     }
 }

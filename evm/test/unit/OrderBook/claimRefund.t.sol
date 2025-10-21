@@ -81,7 +81,7 @@ contract ClaimRefundTest is OrderBookTestBase {
         IOrderBook.Order memory order = orderBook.getOrder(orderId);
 
         // Warp to just before fillDeadline + finalityBuffer
-        uint40 finalityBuffer = orderBook.getDestinationFinalityBuffer(order.destChainId);
+        uint32 finalityBuffer = orderBook.getDestinationFinalityBuffer(order.destChainId);
         vm.warp(order.fillDeadline + finalityBuffer - 1);
 
         // Try to claim refund
@@ -100,7 +100,7 @@ contract ClaimRefundTest is OrderBookTestBase {
         IOrderBook.Order memory order = orderBook.getOrder(orderId);
 
         // Warp past refundRequestedAt + finalityBuffer
-        uint40 finalityBuffer = orderBook.getDestinationFinalityBuffer(order.destChainId);
+        uint32 finalityBuffer = orderBook.getDestinationFinalityBuffer(order.destChainId);
         vm.warp(order.refundRequestedAt + finalityBuffer + 1);
 
         // Record balances
@@ -140,7 +140,7 @@ contract ClaimRefundTest is OrderBookTestBase {
         uint128 expectedRefund = uint128((uint256(params.amountIn) * (params.amountOut - fillAmount)) / params.amountOut);
 
         // Warp past refundRequestedAt + finalityBuffer
-        uint40 finalityBuffer = orderBook.getDestinationFinalityBuffer(order.destChainId);
+        uint32 finalityBuffer = orderBook.getDestinationFinalityBuffer(order.destChainId);
         vm.warp(order.refundRequestedAt + finalityBuffer + 1);
 
         // Record balances
@@ -168,7 +168,7 @@ contract ClaimRefundTest is OrderBookTestBase {
         IOrderBook.Order memory order = orderBook.getOrder(orderId);
 
         // Warp past fillDeadline + finalityBuffer
-        uint40 finalityBuffer = orderBook.getDestinationFinalityBuffer(order.destChainId);
+        uint32 finalityBuffer = orderBook.getDestinationFinalityBuffer(order.destChainId);
         vm.warp(order.fillDeadline + finalityBuffer + 1);
 
         // Record balances
@@ -204,7 +204,7 @@ contract ClaimRefundTest is OrderBookTestBase {
         uint128 expectedRefund = uint128((uint256(params.amountIn) * (params.amountOut - fillAmount)) / params.amountOut);
 
         // Warp past fillDeadline + finalityBuffer
-        uint40 finalityBuffer = orderBook.getDestinationFinalityBuffer(order.destChainId);
+        uint32 finalityBuffer = orderBook.getDestinationFinalityBuffer(order.destChainId);
         vm.warp(order.fillDeadline + finalityBuffer + 1);
 
         // Record balances
@@ -235,7 +235,7 @@ contract ClaimRefundTest is OrderBookTestBase {
         IOrderBook.Order memory order = orderBook.getOrder(orderId);
 
         // Warp past fillDeadline + finalityBuffer
-        uint40 finalityBuffer = orderBook.getDestinationFinalityBuffer(order.destChainId);
+        uint32 finalityBuffer = orderBook.getDestinationFinalityBuffer(order.destChainId);
         vm.warp(order.fillDeadline + finalityBuffer + 1);
 
         // Record balances

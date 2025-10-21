@@ -42,16 +42,17 @@ contract OpenOrderForTest is OrderBookTestBase {
         }
 
         gaslessParams = IOrderBook.GaslessOrderParams({
+            version: VERSION,
+            sender: sender.addr,
+            nonce: orderBook.getSenderNonce(sender.addr),
             originChainId: CHAIN_ID,
-            tokenIn: params.tokenIn,
             destChainId: params.destChainId,
+            fillDeadline: params.fillDeadline,
+            tokenIn: params.tokenIn,
             tokenOut: params.tokenOut,
             amountIn: params.amountIn,
             amountOut: params.amountOut,
-            sender: sender.addr,
-            nonce: orderBook.getSenderNonce(sender.addr),
             recipient: sender.addr.toBytes32(),
-            fillDeadline: params.fillDeadline,
             solver: params.solver 
         });
 
@@ -154,7 +155,7 @@ contract OpenOrderForTest is OrderBookTestBase {
         assertEq(order.version, VERSION, "version");
         assertEq(order.destChainId, gaslessParams.destChainId, "destChainId");
         assertEq(order.fillDeadline, gaslessParams.fillDeadline, "fillDeadline");
-        assertEq(order.refundRequestedAt, uint40(0), "refundRequestedAt");
+        assertEq(order.refundRequestedAt, uint32(0), "refundRequestedAt");
         assertEq(order.nonce, gaslessParams.nonce, "nonce");
         assertEq(order.tokenIn, gaslessParams.tokenIn, "tokenIn");
         assertEq(order.tokenOut, gaslessParams.tokenOut, "tokenOut");
@@ -184,7 +185,7 @@ contract OpenOrderForTest is OrderBookTestBase {
         assertEq(order.version, VERSION, "version");
         assertEq(order.destChainId, gaslessParams.destChainId, "destChainId");
         assertEq(order.fillDeadline, gaslessParams.fillDeadline, "fillDeadline");
-        assertEq(order.refundRequestedAt, uint40(0), "refundRequestedAt");
+        assertEq(order.refundRequestedAt, uint32(0), "refundRequestedAt");
         assertEq(order.nonce, gaslessParams.nonce, "nonce");
         assertEq(order.tokenIn, gaslessParams.tokenIn, "tokenIn");
         assertEq(order.tokenOut, gaslessParams.tokenOut, "tokenOut");
