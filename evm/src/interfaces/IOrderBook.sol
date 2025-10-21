@@ -273,12 +273,80 @@ interface IOrderBook {
 	function openOrder(OrderParams calldata orderParams_) external returns (bytes32);
 
     /**
+     * @notice Opens an order with an EIP-2612 permit signature for token approval
+     * @dev Must be called by the user providing the input funds
+     * @param orderParams_ order creation parameters (see OrderParams definition)
+     * @param deadline_ deadline for the permit signature
+     * @param v_ v parameter of the permit signature
+     * @param r_ r parameter of the permit signature
+     * @param s_ s parameter of the permit signature
+     * @return The unique ID of the opened order
+     */
+    function openOrderWithPermit(
+        OrderParams calldata orderParams_,
+        uint256 deadline_,
+        uint8 v_,
+        bytes32 r_,
+        bytes32 s_
+    ) external returns (bytes32);
+
+    /**
+     * @notice Opens an order with an EIP-2612 permit signature for token approval
+     * @dev Must be called by the user providing the input funds
+     * @param orderParams_ order creation parameters (see OrderParams definition)
+     * @param deadline_ deadline for the permit signature
+     * @param permitSignature_ packed encoding of the permit signature
+     * @return The unique ID of the opened order
+     */
+    function openOrderWithPermit(
+        OrderParams calldata orderParams_,
+        uint256 deadline_,
+        bytes memory permitSignature_
+    ) external returns (bytes32);
+
+    /**
      * @notice Opens a gasless order on behalf of a user.
 	 * @dev More flexible method relying on an offchain signature to authorize order creation
 	 * @param orderParams_ gasless order creation parameters (see GaslessOrderParams definition)
-	 * @param signature_ Order sender's signature of the EIP-712 payload containing the orderParams
+	 * @param orderSignature_ Order sender's signature of the EIP-712 payload containing the orderParams
 	 */
-	function openOrderFor(GaslessOrderParams calldata orderParams_, bytes calldata signature_) external returns (bytes32);
+	function openOrderFor(GaslessOrderParams calldata orderParams_, bytes calldata orderSignature_) external returns (bytes32);
+
+    /**
+     * @notice Opens a gasless order on behalf of a user with an EIP-2612 permit signature for token approval
+     * @dev More flexible method relying on an offchain signature to authorize order creation, bundles token approval as well
+     * @param orderParams_ gasless order creation parameters (see GaslessOrderParams definition)
+     * @param orderSignature_ Order sender's signature of the EIP-712 payload containing the orderParams
+     * @param deadline_ deadline for the permit signature
+     * @param v_ v parameter of the permit signature
+     * @param r_ r parameter of the permit signature
+     * @param s_ s parameter of the permit signature
+     * @return The unique ID of the opened order
+     */
+    function openOrderForWithPermit(
+        GaslessOrderParams calldata orderParams_,
+        bytes calldata orderSignature_,
+        uint256 deadline_,
+        uint8 v_,
+        bytes32 r_,
+        bytes32 s_
+    ) external returns (bytes32);
+
+    /**
+     * @notice Opens a gasless order on behalf of a user with an EIP-2612 permit signature for token approval
+     * @dev More flexible method relying on an offchain signature to authorize order creation, bundles token approval as well
+     * @param orderParams_ gasless order creation parameters (see GaslessOrderParams definition)
+     * @param orderSignature_ Order sender's signature of the EIP-712 payload containing the orderParams
+     * @param deadline_ deadline for the permit signature
+     * @param permitSignature_ packed encoding of the permit signature
+     * @return The unique ID of the opened order
+     */
+    function openOrderForWithPermit(
+        GaslessOrderParams calldata orderParams_,
+        bytes calldata orderSignature_,
+        uint256 deadline_,
+        bytes memory permitSignature_
+    ) external returns (bytes32);
 
     /**
      * @notice Request cancellation of an order before its fill deadline

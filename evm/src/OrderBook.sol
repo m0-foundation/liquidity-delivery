@@ -2,6 +2,7 @@
 pragma solidity 0.8.26;
 
 import { IERC20 } from "../lib/common/src/interfaces/IERC20.sol";
+import { IERC20Extended } from "../lib/common/src/interfaces/IERC20Extended.sol";
 import { AccessControlUpgradeable } from "../lib/common/lib/openzeppelin-contracts-upgradeable/contracts/access/AccessControlUpgradeable.sol";
 import { ERC712ExtendedUpgradeable } from "../lib/common/src/ERC712ExtendedUpgradeable.sol";
 
@@ -79,32 +80,61 @@ contract OrderBook is IOrderBook, OrderBookStorageLayout, AccessControlUpgradeab
     }
 
     /// @inheritdoc IOrderBook
-    // TODO still requires standard approval for tokenIn
-    // Think about supporting ERC20Permit OR Permit2 here to have not require a txn from the sender
+    function openOrderWithPermit(
+        OrderParams calldata orderParams_,
+        uint256 deadline_,
+        uint8 v_,
+        bytes32 r_,
+        bytes32 s_
+    ) external override returns (bytes32) {
+        try IERC20Extended(orderParams_.tokenIn).permit(msg.sender, address(this), uint256(orderParams_.amountIn), deadline_, v_, r_, s_) {} catch {}
+
+        return _openOrder(msg.sender, orderParams_);
+    }
+
+    /// @inheritdoc IOrderBook
+    function openOrderWithPermit(
+        OrderParams calldata orderParams_,
+        uint256 deadline_,
+        bytes memory permitSignature_
+    ) external override returns (bytes32) {
+        try IERC20Extended(orderParams_.tokenIn).permit(msg.sender, address(this), uint256(orderParams_.amountIn), deadline_, permitSignature_) {} catch {}
+
+        return _openOrder(msg.sender, orderParams_);
+    }
+
+    /// @inheritdoc IOrderBook
     function openOrderFor(
         GaslessOrderParams calldata orderParams_,
-        bytes calldata signature_
+        bytes calldata orderSignature_
     ) external override returns (bytes32) {
-        // Verify signature
-        _revertIfInvalidSignature(orderParams_.sender, getGaslessOrderDigest(orderParams_), signature_);
+        return _openOrderFor(orderParams_, orderSignature_);
+    }
 
-        // Verify origin chain and sender nonce
-        if (orderParams_.originChainId != chainId) revert InvalidOriginChain();
-        OrderBookStorageStruct storage $ = _getOrderBookStorageLocation();
-        // Requiring a nonce in the order provides replay protection for the sender
-        if (orderParams_.nonce != $.senderNonces[orderParams_.sender]) revert InvalidNonce();
+    /// @inheritdoc IOrderBook
+    function openOrderForWithPermit(
+        GaslessOrderParams calldata orderParams_,
+        bytes calldata orderSignature_,
+        uint256 deadline_,
+        uint8 v_,
+        bytes32 r_,
+        bytes32 s_
+    ) external override returns (bytes32) {
+        try IERC20Extended(orderParams_.tokenIn).permit(orderParams_.sender, address(this), uint256(orderParams_.amountIn), deadline_, v_, r_, s_) {} catch {}
 
-        // Open order on behalf of the sender
-        return _openOrder(orderParams_.sender, OrderParams({
-            destChainId: orderParams_.destChainId,
-            tokenIn: orderParams_.tokenIn,
-            tokenOut: orderParams_.tokenOut,
-            amountIn: orderParams_.amountIn,
-            amountOut: orderParams_.amountOut,
-            recipient: orderParams_.recipient,
-            fillDeadline: orderParams_.fillDeadline,
-            solver: orderParams_.solver
-        }));
+        return _openOrderFor(orderParams_, orderSignature_);
+    }
+
+    /// @inheritdoc IOrderBook
+    function openOrderForWithPermit(
+        GaslessOrderParams calldata orderParams_,
+        bytes calldata orderSignature_,
+        uint256 deadline_,
+        bytes memory permitSignature_
+    ) external override returns (bytes32) {
+        try IERC20Extended(orderParams_.tokenIn).permit(orderParams_.sender, address(this), uint256(orderParams_.amountIn), deadline_, permitSignature_) {} catch {}
+
+        return _openOrderFor(orderParams_, orderSignature_);
     }
 
     function _openOrder(address sender_, OrderParams memory orderParams_) internal returns (bytes32) {
@@ -157,6 +187,32 @@ contract OrderBook is IOrderBook, OrderBookStorageLayout, AccessControlUpgradeab
         emit OrderOpen(orderId_, orderParams_.tokenIn, orderParams_.amountIn, orderParams_.destChainId, orderParams_.tokenOut, orderParams_.amountOut, orderParams_.solver);
 
         return orderId_;
+    }
+
+    function _openOrderFor(
+        GaslessOrderParams calldata orderParams_,
+        bytes calldata signature_
+    ) internal returns (bytes32) {
+        // Verify signature
+        _revertIfInvalidSignature(orderParams_.sender, getGaslessOrderDigest(orderParams_), signature_);
+
+        // Verify origin chain and sender nonce
+        if (orderParams_.originChainId != chainId) revert InvalidOriginChain();
+        OrderBookStorageStruct storage $ = _getOrderBookStorageLocation();
+        // Requiring a nonce in the order provides replay protection for the sender
+        if (orderParams_.nonce != $.senderNonces[orderParams_.sender]) revert InvalidNonce();
+
+        // Open order on behalf of the sender
+        return _openOrder(orderParams_.sender, OrderParams({
+            destChainId: orderParams_.destChainId,
+            tokenIn: orderParams_.tokenIn,
+            tokenOut: orderParams_.tokenOut,
+            amountIn: orderParams_.amountIn,
+            amountOut: orderParams_.amountOut,
+            recipient: orderParams_.recipient,
+            fillDeadline: orderParams_.fillDeadline,
+            solver: orderParams_.solver
+        }));
     }
 
     // ========== Refunding Orders ========== //
