@@ -22,6 +22,7 @@ pub struct SendFillReport<'info> {
 #[derive(Debug, AnchorSerialize, AnchorDeserialize)]
 pub struct FillReport {
     pub order_id: [u8; 32],
+    pub amount_in_to_release: u128,
     pub amount_out_filled: u128,
     pub origin_recipient: [u8; 32],
 }

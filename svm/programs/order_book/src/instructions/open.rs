@@ -6,7 +6,8 @@ use anchor_spl::{
 use crate::{
     state::{
         Order, OrderData, OrderType, NativeOrder, OrderStatus, ORDER_SEED_PREFIX,
-        Nonce, NONCE_SEED_PREFIX, OrderBookGlobal, GLOBAL_SEED, compute_order_id
+        Nonce, NONCE_SEED_PREFIX, OrderBookGlobal, GLOBAL_SEED, compute_order_id,
+        DESTINATION_SEED_PREFIX, Destination,
     },
     utils::transfer_tokens,
     constants::{VERSION, ANCHOR_DISCRIMINATOR_SIZE},
@@ -17,11 +18,11 @@ use std::ops::Deref;
 #[derive(AnchorSerialize, AnchorDeserialize)]
 pub struct OrderParams {
     pub dest_chain_id: u32,
+    pub fill_deadline: u32,
     pub token_out: [u8; 32],
     pub amount_in: u64,
     pub amount_out: u128,
     pub recipient: [u8; 32],
-    pub fill_deadline: u64,
     pub solver: [u8; 32],
 }
 
@@ -41,6 +42,12 @@ pub struct OpenOrder<'info> {
         bump = global_account.bump
     )]
     pub global_account: Account<'info, OrderBookGlobal>,
+
+    #[account(
+        seeds = [DESTINATION_SEED_PREFIX, &params.dest_chain_id.to_le_bytes()],
+        bump = destination_account.bump,
+    )]
+    pub destination_account: Option<Account<'info, Destination>>,
 
     #[account(mint::token_program = token_in_program)]
     pub token_in_mint: InterfaceAccount<'info, Mint>,
@@ -65,22 +72,22 @@ pub struct OpenOrder<'info> {
         init,
         payer = payer,
         space = ANCHOR_DISCRIMINATOR_SIZE + Order::<NativeOrder>::INIT_SPACE,
-        seeds = [ORDER_SEED_PREFIX, &compute_order_id(
-            &OrderData {
-                version: VERSION as u16,
-                origin_chain_id: global_account.chain_id,
-                sender: sender_token_in_account.deref().owner.to_bytes(),
-                nonce: sender_nonce_account.value,
-                dest_chain_id: params.dest_chain_id,
-                fill_deadline: params.fill_deadline,
-                token_out: params.token_out,
-                recipient: params.recipient,
-                amount_out: params.amount_out,
-                solver: params.solver,
-            }
-        )],
-        bump
-    )]
+        seeds = [ORDER_SEED_PREFIX, &compute_order_id(&OrderData {
+                    version: VERSION as u16,
+                    sender: sender_token_in_account.deref().owner.to_bytes(),
+                    nonce: sender_nonce_account.value,
+                    origin_chain_id: global_account.chain_id,
+                    dest_chain_id: params.dest_chain_id,
+                    fill_deadline: params.fill_deadline,
+                    token_out: params.token_out,
+                    amount_in: params.amount_in as u128,
+                    amount_out: params.amount_out,
+                    recipient: params.recipient,
+                    solver: params.solver,
+                })
+            ],
+            bump
+        )]
     pub order: Account<'info, Order::<NativeOrder>>,
 
     #[account(
@@ -101,10 +108,17 @@ pub struct OpenOrder<'info> {
 
 impl OpenOrder<'_> {
     fn validate(&self, params: &OrderParams) -> Result<()> {
+        // Validate the destination
+        // If the destination chain is not the current chain, ensure the destination is supported
+        if params.dest_chain_id != self.global_account.chain_id {
+            let destination_account = self.destination_account.as_ref().ok_or(OrderBookError::DestinationNotSupported)?;
+            require!(destination_account.is_supported, OrderBookError::DestinationNotSupported);
+        }
+
         // Validate params
         require!(params.amount_in > 0, OrderBookError::InvalidAmountIn);
         require!(params.amount_out > 0, OrderBookError::InvalidAmountOut);
-        require!(params.fill_deadline > Clock::get()?.unix_timestamp as u64, OrderBookError::InvalidFillDeadline);
+        require!(params.fill_deadline > Clock::get()?.unix_timestamp as u32, OrderBookError::InvalidFillDeadline);
 
         Ok(())
     }
@@ -120,30 +134,33 @@ impl OpenOrder<'_> {
             data: NativeOrder {
                 status: OrderStatus::Created,
                 version: VERSION,
+                sender,
+                nonce: ctx.accounts.sender_nonce_account.value,
                 dest_chain_id: params.dest_chain_id,
                 fill_deadline: params.fill_deadline,
-                nonce: ctx.accounts.sender_nonce_account.value,
+                refund_requested_at: 0,
                 token_in: ctx.accounts.token_in_mint.key(),
                 token_out: params.token_out,
-                sender,
-                recipient: params.recipient,
-                amount_in: params.amount_in,
+                amount_in: params.amount_in as u128,
                 amount_out: params.amount_out,
-                amount_out_filled: 0,
+                recipient: params.recipient,
                 solver: params.solver,
+                amount_in_released: 0,
+                amount_out_filled: 0,
             },
         });
 
         let order_id = compute_order_id(&OrderData {
             version: VERSION,
-            origin_chain_id: ctx.accounts.global_account.chain_id,
             sender: sender.to_bytes(),
             nonce: ctx.accounts.sender_nonce_account.value,
+            origin_chain_id: ctx.accounts.global_account.chain_id,
             dest_chain_id: params.dest_chain_id,
             fill_deadline: params.fill_deadline,
             token_out: params.token_out,
-            recipient: params.recipient,
+            amount_in: params.amount_in as u128,
             amount_out: params.amount_out,
+            recipient: params.recipient,
             solver: params.solver,
         });
 
@@ -167,7 +184,7 @@ impl OpenOrder<'_> {
 
         // Emit the event
         emit_cpi!(
-            OrderOpened {
+            OrderOpen {
                 order_id,
                 token_in: ctx.accounts.token_in_mint.key(),
                 amount_in: params.amount_in,
@@ -183,7 +200,7 @@ impl OpenOrder<'_> {
 }
 
 #[event]
-pub struct OrderOpened {
+pub struct OrderOpen {
     pub order_id: [u8; 32],
     pub token_in: Pubkey,
     pub amount_in: u64,

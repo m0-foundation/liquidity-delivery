@@ -10,6 +10,8 @@ pub enum OrderBookError {
     OrderNotFillable,
     #[msg("Math overflow")]
     MathOverflow,
+    #[msg("Math underflow")]
+    MathUnderflow,
     #[msg("Invalid fill amount")]
     InvalidFillAmount,
     #[msg("Invalid order ID")]
@@ -42,4 +44,12 @@ pub enum OrderBookError {
     InvalidOrderStatus,
     #[msg("Order is not expired yet")]
     OrderNotExpired,
+    #[msg("Destination chain not supported")]
+    DestinationNotSupported,
+    #[msg("Destination account required")]
+    DestinationAccountRequired,
+    #[msg("Order is already filled")]
+    OrderFilled,
+    #[msg("Order status is not finalized")]
+    FinalityPending
 }

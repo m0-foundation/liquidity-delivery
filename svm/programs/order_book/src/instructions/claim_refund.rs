@@ -2,7 +2,11 @@ use anchor_lang::prelude::*;
 use anchor_spl::token_interface::{Mint, TokenInterface, TokenAccount};
 use crate::{
     error::OrderBookError,
-    state::{Order, NativeOrder, OrderStatus, ORDER_SEED_PREFIX, GLOBAL_SEED, OrderBookGlobal},
+    state::{
+        Order, NativeOrder, OrderStatus,
+        ORDER_SEED_PREFIX, GLOBAL_SEED, OrderBookGlobal,
+        DESTINATION_SEED_PREFIX, Destination,
+    },
     utils::transfer_tokens_from_program,
 };
 
@@ -19,6 +23,12 @@ pub struct ClaimRefund<'info> {
         bump = global_account.bump
     )]
     pub global_account: Account<'info, OrderBookGlobal>,
+
+    #[account(
+        seeds = [DESTINATION_SEED_PREFIX, order.data.dest_chain_id.to_le_bytes().as_ref()],
+        bump = destination_account.bump
+    )]
+    pub destination_account: Option<Account<'info, Destination>>,
     
     #[account(
         mut,
@@ -59,17 +69,30 @@ pub struct ClaimRefund<'info> {
 
 impl ClaimRefund<'_> {
     fn validate(&self) -> Result<()> {
+        // Validate the destination account exists if the order's destination chain is not the current chain
+        let finality_buffer = if self.order.data.dest_chain_id != self.global_account.chain_id {
+            let destination_account = self.destination_account.as_ref().ok_or(OrderBookError::DestinationAccountRequired)?;
+            destination_account.finality_buffer
+        } else {
+            0
+        };
+
         let order = &self.order.data;
 
-        // Validate the order has not been completed
-        if order.status == OrderStatus::Completed {
+        // Validate the order has not been completed and that the finality buffer has passed based on the status
+        let current_timestamp = Clock::get()?.unix_timestamp as u32;
+        if order.status == OrderStatus::Created {
+            require!(
+                order.fill_deadline + finality_buffer < current_timestamp,
+                OrderBookError::FinalityPending
+            )
+        } else if order.status == OrderStatus::CancelRequested {
+            require!(
+                order.refund_requested_at + finality_buffer < current_timestamp,
+                OrderBookError::FinalityPending
+            )
+        } else {
             return err!(OrderBookError::InvalidOrderStatus);
-        }
-
-        // Validate the fill deadline has passed
-        let current_timestamp = Clock::get()?.unix_timestamp as u64;
-        if order.fill_deadline + self.global_account.finality_buffer > current_timestamp {
-            return err!(OrderBookError::OrderNotExpired);
         }
 
         Ok(())
@@ -94,6 +117,8 @@ impl ClaimRefund<'_> {
                 &[&[ORDER_SEED_PREFIX, order_id.as_ref(), &[ctx.accounts.order.bump]]],
                 &ctx.accounts.token_in_program,
             )?;
+        } else {
+            return err!(OrderBookError::OrderFilled);
         }
 
         emit_cpi!(RefundClaimed {

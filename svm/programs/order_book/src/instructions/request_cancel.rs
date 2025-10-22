@@ -31,8 +31,7 @@ impl RequestCancelOrder<'_> {
         }
 
         // Validate the fill deadline is in the future, otherwise, there is no need to cancel
-        let current_timestamp = Clock::get()?.unix_timestamp as u64;
-        if order.fill_deadline <= current_timestamp {
+        if order.fill_deadline <= Clock::get()?.unix_timestamp as u32 {
             return err!(OrderBookError::OrderExpired);
         }
 
@@ -45,12 +44,12 @@ impl RequestCancelOrder<'_> {
         let order = &mut ctx.accounts.order.data;
         order.status = OrderStatus::CancelRequested;
 
-        let current_timestamp = Clock::get()?.unix_timestamp as u64;
-        order.fill_deadline = current_timestamp;
+        order.refund_requested_at = Clock::get()?.unix_timestamp as u32;
 
         // Emit cancel requested event to notify solvers to not fill the order any longer
         emit_cpi!(CancelRequest {
-            order_id
+            order_id,
+            refund_requested_at: order.refund_requested_at,
         });
 
         Ok(())
@@ -61,4 +60,5 @@ impl RequestCancelOrder<'_> {
 #[event]
 pub struct CancelRequest {
     pub order_id: [u8; 32],
+    pub refund_requested_at: u32,
 }

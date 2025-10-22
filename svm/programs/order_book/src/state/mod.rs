@@ -22,6 +22,17 @@ pub struct OrderBookGlobal {
     pub admin: Pubkey,
     pub chain_id: u32,
     pub messenger_authority: Pubkey,
-    pub finality_buffer: u64, // TODO consider storing for each chain instead of a global value. Doing this initially for simplicity.
+    pub bump: u8,
+    pub reserved: [u8; 128], // reserved space for future upgrades
+}
+
+#[constant]
+pub const DESTINATION_SEED_PREFIX: &[u8] = b"destination";
+
+#[account]
+#[derive(InitSpace)]
+pub struct Destination {
+    pub is_supported: bool,
+    pub finality_buffer: u32,
     pub bump: u8,
 }

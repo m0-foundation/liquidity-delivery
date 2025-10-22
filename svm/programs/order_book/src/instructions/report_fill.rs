@@ -92,12 +92,13 @@ impl ReportOrderFill<'_> {
     pub fn handler(ctx: Context<Self>, fill_report: FillReport) -> Result<()> {
         let order = &mut ctx.accounts.order.data;
 
-        // Update the amount filled on the order
+        // Update the filled amounts on the order
         // We trust the amount provided is accurate and that the destination chain
         // does not allow overfills
+        order.amount_in_released += fill_report.amount_in_to_release as u128;
         order.amount_out_filled += fill_report.amount_out_filled as u128;
 
-        let full_fill = if order.amount_out_filled > order.amount_out {
+        let full_fill = if order.amount_out_filled > order.amount_out || order.amount_in_released > order.amount_in {
             // This should not be possible, but included for safety
             return err!(OrderBookError::Overfill);
         } else if order.amount_out_filled == order.amount_out {
@@ -110,22 +111,20 @@ impl ReportOrderFill<'_> {
 
         // Calculate the corresponding input amount to release to the solve
         // If the order is completed by the fill, use the order token account balance
-        // Otherwise, calculate pro-rata based on the fill amount
-        let release_amount_in: u64 = if full_fill {
+        // Otherwise, use the reported amount
+        let amount_in_to_release: u64 = if full_fill {
             // Any tokens sent to this account after the order is created are donated to the solver
+            require!(ctx.accounts.order_token_in_ata.amount >= fill_report.amount_in_to_release.try_into().map_err(|_| OrderBookError::MathOverflow)?, OrderBookError::InvalidFillAmount);
             ctx.accounts.order_token_in_ata.amount
         } else {
-            fill_report.amount_out_filled
-                .checked_mul(order.amount_in as u128).ok_or(OrderBookError::MathOverflow)?
-                .checked_div(order.amount_out).ok_or(OrderBookError::MathOverflow)?
-                .try_into().map_err(|_| OrderBookError::MathOverflow)?
+            fill_report.amount_in_to_release.try_into().map_err(|_| OrderBookError::MathOverflow)?
         };
 
         // Transfer the input tokens from the order to the designated recipient
         transfer_tokens_from_program(
             &ctx.accounts.order_token_in_ata,
             &ctx.accounts.recipient_token_in_ata,
-            release_amount_in,
+            amount_in_to_release,
             &ctx.accounts.token_in_mint,
             &ctx.accounts.order.to_account_info(),
             &[&[
@@ -139,6 +138,7 @@ impl ReportOrderFill<'_> {
         // Emit an event for the fill report
         emit_cpi!(FillReported {
             order_id: fill_report.order_id,
+            amount_in_to_release: fill_report.amount_in_to_release,
             amount_out_filled: fill_report.amount_out_filled,
             origin_recipient: fill_report.origin_recipient,
         });
@@ -150,6 +150,7 @@ impl ReportOrderFill<'_> {
 #[event]
 pub struct FillReported {
     pub order_id: [u8; 32],
+    pub amount_in_to_release: u128,
     pub amount_out_filled: u128,
     pub origin_recipient: [u8; 32],
 }

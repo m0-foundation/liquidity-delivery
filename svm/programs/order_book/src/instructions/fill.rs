@@ -28,6 +28,7 @@ pub struct FillParams {
 pub struct Fill {
     pub order_id: [u8; 32],
     pub solver: Pubkey,
+    pub amount_in_to_release: u128,
     pub amount_out_filled: u128
 }
 
@@ -143,35 +144,34 @@ impl FillNativeOrder<'_> {
         let order = &mut ctx.accounts.order.data;
 
         // Calculate the fill amount as the minimum of the provided fill amount out and the remaining amount out to fill
-        let out_filled: u128 = order.amount_out_filled;
-        let out_remaining: u128 = order.amount_out.checked_sub(out_filled).ok_or(OrderBookError::MathOverflow)?;
-        let full_fill: bool = fill_params.amount_out_to_fill as u128 >= out_remaining;
-        let fill_amount_out: u64 = if full_fill {
-            // Since the order is fully filled, update the order status
+        // Also, calculate the corresponding amount in to release to the solver
+        let amount_out_remaining: u128 = order.amount_out.checked_sub(order.amount_out_filled).ok_or(OrderBookError::MathUnderflow)?;
+        let amount_in_remaining: u128 = order.amount_in.checked_sub(order.amount_in_released).ok_or(OrderBookError::MathUnderflow)?;
+        require!(amount_out_remaining > 0, OrderBookError::OrderFilled);
+        let full_fill: bool = fill_params.amount_out_to_fill as u128 >= amount_out_remaining;
+        let (amount_in_to_release, amount_out_to_fill): (u64, u64) = if full_fill {
+            // Set the order status to completed
             order.status = OrderStatus::Completed;
 
-            // Set the fill amount to the remaining amount
-            out_remaining.try_into().map_err(|_| OrderBookError::InvalidFillAmount)?
+            // Set the fill amount out to the remaining amount
+            // The amount in to release is the remaining amount in the order ATA
+            // Any extra tokens are considered a donation to the solver that completes the order
+            require!(ctx.accounts.order_token_in_ata.amount >= amount_in_remaining.try_into().map_err(|_| OrderBookError::InvalidFillAmount)?, OrderBookError::InvalidFillAmount);
+            (ctx.accounts.order_token_in_ata.amount, amount_out_remaining.try_into().map_err(|_| OrderBookError::InvalidFillAmount)?)
         } else {
-            // Otherwise, just use the provided fill amount
-            fill_params.amount_out_to_fill
+            // Calculate the amount in to release based on the proportion of amount out being filled
+            let amount_in_to_release: u64 = (fill_params.amount_out_to_fill as u128)
+                .checked_mul(order.amount_in).ok_or(OrderBookError::MathOverflow)?
+                .checked_div(order.amount_out).ok_or(OrderBookError::MathUnderflow)?
+                .try_into().map_err(|_| OrderBookError::MathOverflow)?;
+
+            (amount_in_to_release, fill_params.amount_out_to_fill)
         };
+
 
         // Update the amount filled on the order
-        order.amount_out_filled += fill_amount_out as u128;
-
-        // Calculate the corresponding input amount to release to the solve
-        // If the order is completed by the fill, use the order token account balance
-        // Otherwise, calculate pro-rata based on the fill amount
-        let release_amount_in: u64 = if full_fill {
-            // Any tokens sent to this account after the order is created are donated to the solver
-            ctx.accounts.order_token_in_ata.amount
-        } else {
-            (fill_amount_out as u128)
-                .checked_mul(order.amount_in as u128).ok_or(OrderBookError::MathOverflow)?
-                .checked_div(order.amount_out).ok_or(OrderBookError::MathOverflow)?
-                .try_into().map_err(|_| OrderBookError::MathOverflow)?
-        };
+        order.amount_in_released += amount_in_to_release as u128;
+        order.amount_out_filled += amount_out_to_fill as u128;
 
         // Transfer the output tokens from the solver to the recipient
         let auth = match &ctx.accounts.common.token_authority {
@@ -182,7 +182,7 @@ impl FillNativeOrder<'_> {
         transfer_tokens(
             &ctx.accounts.common.solver_token_out_account,
             &ctx.accounts.common.recipient_token_out_ata,
-            fill_amount_out,
+            amount_out_to_fill,
             &ctx.accounts.common.token_out_mint,
             &auth,
             &ctx.accounts.common.token_out_program,
@@ -192,7 +192,7 @@ impl FillNativeOrder<'_> {
         transfer_tokens_from_program(
             &ctx.accounts.order_token_in_ata,
             &ctx.accounts.solver_token_in_account,
-            release_amount_in,
+            amount_in_to_release,
             &ctx.accounts.token_in_mint,
             &ctx.accounts.order.to_account_info(),
             &[&[
@@ -218,7 +218,8 @@ impl FillNativeOrder<'_> {
             Fill {
                 order_id,
                 solver: ctx.accounts.common.solver.key(),
-                amount_out_filled: fill_amount_out as u128,
+                amount_in_to_release: amount_in_to_release as u128,
+                amount_out_filled: amount_out_to_fill as u128,
             }
         );
 
@@ -265,6 +266,7 @@ impl FillForeignOrder<'_> {
             ctx.accounts.order.order_type = OrderType::Foreign;
             ctx.accounts.order.bump = ctx.bumps.order;
             ctx.accounts.order.data = ForeignOrder {
+                amount_in_released: 0,
                 amount_out_filled: 0
             };
         }
@@ -272,19 +274,28 @@ impl FillForeignOrder<'_> {
         let order = &mut ctx.accounts.order.data;
 
         // Calculate the fill amount as the minimum of the provided fill amount out and the remaining amount out to fill
-        let out_filled: u128 = order.amount_out_filled;
-        let out_remaining: u128 = order_data.amount_out.checked_sub(out_filled).ok_or(OrderBookError::MathOverflow)?;
-        let full_fill: bool = fill_params.amount_out_to_fill as u128 >= out_remaining;
-        let fill_amount_out: u64 = if full_fill {
-            // Set the fill amount to the remaining amount
-            out_remaining.try_into().map_err(|_| OrderBookError::InvalidFillAmount)?
+        // Also, calculate the corresponding amount in to release to the solver
+        let amount_out_remaining: u128 = order_data.amount_out.checked_sub(order.amount_out_filled).ok_or(OrderBookError::MathUnderflow)?;
+        let amount_in_remaining: u128 = order_data.amount_in.checked_sub(order.amount_in_released).ok_or(OrderBookError::MathUnderflow)?;
+        require!(amount_out_remaining > 0, OrderBookError::OrderFilled);
+        let full_fill: bool = fill_params.amount_out_to_fill as u128 >= amount_out_remaining;
+        let (amount_in_to_release, amount_out_to_fill): (u64, u64) = if full_fill {
+            // Set the fill amount out to the remaining amount
+            // Set the amount in to release to the remaining amount in
+            (amount_in_remaining.try_into().map_err(|_| OrderBookError::InvalidFillAmount)?, amount_out_remaining.try_into().map_err(|_| OrderBookError::InvalidFillAmount)?)
         } else {
-            // Otherwise, just use the provided fill amount
-            fill_params.amount_out_to_fill
+            // Calculate the amount in to release based on the proportion of amount out being filled
+            let amount_in_to_release: u64 = (fill_params.amount_out_to_fill as u128)
+                .checked_mul(order_data.amount_in).ok_or(OrderBookError::MathOverflow)?
+                .checked_div(order_data.amount_out).ok_or(OrderBookError::MathUnderflow)?
+                .try_into().map_err(|_| OrderBookError::MathOverflow)?;
+
+            (amount_in_to_release, fill_params.amount_out_to_fill)
         };
 
-        // Update the amount filled on the order
-        order.amount_out_filled += fill_amount_out as u128;
+        // Update the fill amounts on the order
+        order.amount_in_released += amount_in_to_release as u128;
+        order.amount_out_filled += amount_out_to_fill as u128;
 
         // Transfer the output tokens from the solver to the recipient
         let auth = match &ctx.accounts.common.token_authority {
@@ -295,7 +306,7 @@ impl FillForeignOrder<'_> {
         transfer_tokens(
             &ctx.accounts.common.solver_token_out_account,
             &ctx.accounts.common.recipient_token_out_ata,
-            fill_amount_out,
+            amount_out_to_fill,
             &ctx.accounts.common.token_out_mint,
             &auth,
             &ctx.accounts.common.token_out_program,
@@ -313,7 +324,8 @@ impl FillForeignOrder<'_> {
             order_data.origin_chain_id,
             FillReport {
                 order_id,
-                amount_out_filled: fill_amount_out as u128,
+                amount_in_to_release: amount_in_to_release as u128,
+                amount_out_filled: amount_out_to_fill as u128,
                 origin_recipient: fill_params.origin_recipient
             }
         )?;
@@ -323,7 +335,8 @@ impl FillForeignOrder<'_> {
             Fill {
                 order_id,
                 solver: ctx.accounts.common.solver.key(),
-                amount_out_filled: fill_amount_out as u128,
+                amount_in_to_release: amount_in_to_release as u128,
+                amount_out_filled: amount_out_to_fill as u128,
             }
         );
 
@@ -341,7 +354,7 @@ fn validate_params(order_id: &[u8; 32], order_data: &OrderData, fill_params: &Fi
 
     // Validate the order has not expired
     let current_timestamp = Clock::get()?.unix_timestamp as u64;
-    require!(current_timestamp <= order_data.fill_deadline, OrderBookError::OrderExpired);
+    require!(current_timestamp <= order_data.fill_deadline as u64, OrderBookError::OrderExpired);
 
     // Validate the order is for the current version
     require!(order_data.version == VERSION, OrderBookError::InvalidOrderVersion);
