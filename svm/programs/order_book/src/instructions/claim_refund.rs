@@ -44,17 +44,13 @@ pub struct ClaimRefund<'info> {
     )]
     pub token_in_mint: InterfaceAccount<'info, Mint>,
 
-    // TODO think about whether we should require this to be an ATA
-    // If so, it may cause issues for programs that don't use ATAs
-    // However, if we will allow anyone to claim refunds for senders,
-    // then there may be some griefing risk
     #[account(
         mut,
-        token::mint = token_in_mint,
-        token::authority = sender,
-        token::token_program = token_in_program,
+        associated_token::mint = token_in_mint,
+        associated_token::authority = sender,
+        associated_token::token_program = token_in_program,
     )]
-    pub sender_token_in_account: InterfaceAccount<'info, TokenAccount>,
+    pub sender_token_in_ata: InterfaceAccount<'info, TokenAccount>,
 
     #[account(
         mut,
@@ -110,7 +106,7 @@ impl ClaimRefund<'_> {
         if amount > 0 {
             transfer_tokens_from_program(
                 &ctx.accounts.order_token_in_ata,
-                &ctx.accounts.sender_token_in_account,
+                &ctx.accounts.sender_token_in_ata,
                 amount,
                 &ctx.accounts.token_in_mint,
                 &ctx.accounts.order.to_account_info(),
