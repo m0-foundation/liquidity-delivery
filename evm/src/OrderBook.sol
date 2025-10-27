@@ -320,7 +320,7 @@ contract OrderBook is IOrderBook, OrderBookStorageLayout, AccessControlUpgradeab
         filledAmounts.amountOutFilled += amountOutToFill_;
         filledAmounts.amountInReleased += amountInToRelease_;
 
-        // Handle releasing the corresponding amount of origin tokens to the filler
+        // If local order, release the corresponding amount of origin tokens to the filler
         if (chainId == orderData_.originChainId) {
             // If a full fill, mark the order as completed
             Order storage order = $.localOrders[orderId_];
@@ -338,11 +338,10 @@ contract OrderBook is IOrderBook, OrderBookStorageLayout, AccessControlUpgradeab
         // Transfer tokens from the solver to the recipient
         IERC20(orderData_.tokenOut.toAddress()).safeTransferExactFrom(msg.sender, orderData_.recipient.toAddress(), uint256(amountOutToFill_));
 
-        // This block is split out to allow the above transfer to happen before any cross-chain messaging
-        if (chainId != orderData_.originChainId) {
-            // If this is a fill on a different chain than the origin chain, 
-            // we need to send a message back to the origin chain to release 
-            // the corresponding amount of tokenIn to the solver's recipient
+        // If this is a fill on a different chain than the origin chain, 
+        // we need to send a message back to the origin chain to release 
+        // the corresponding amount of tokenIn to the solver's recipient
+        if (chainId != orderData_.originChainId) {    
             IMessenger(messenger).sendFillReport(
                 orderData_.originChainId,
                 FillReport({
