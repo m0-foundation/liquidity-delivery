@@ -35,7 +35,7 @@ pub struct NativeOrder {
     pub nonce: u64,
     pub dest_chain_id: u32,
     pub fill_deadline: u32,
-    pub refund_requested_at: u32,
+    pub cancel_requested_at: u32,
     pub token_in: Pubkey,
     pub token_out: [u8; 32], 
     pub amount_in: u128,

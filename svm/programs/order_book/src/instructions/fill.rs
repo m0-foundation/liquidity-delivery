@@ -25,7 +25,7 @@ pub struct FillParams {
 
 // Events
 #[event]
-pub struct Fill {
+pub struct OrderFilled {
     pub order_id: [u8; 32],
     pub solver: Pubkey,
     pub amount_in_to_release: u128,
@@ -198,7 +198,7 @@ impl FillNativeOrder<'_> {
 
         // Emit a fill event regardless
         emit_cpi!(
-            Fill {
+            OrderFilled {
                 order_id,
                 solver: ctx.accounts.common.solver.key(),
                 amount_in_to_release: amount_in_to_release as u128,
@@ -319,7 +319,7 @@ impl FillForeignOrder<'_> {
 
         // Emit a fill event
         emit_cpi!(
-            Fill {
+            OrderFilled {
                 order_id,
                 solver: ctx.accounts.common.solver.key(),
                 amount_in_to_release: amount_in_to_release as u128,

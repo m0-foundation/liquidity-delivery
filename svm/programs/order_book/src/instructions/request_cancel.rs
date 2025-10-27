@@ -44,12 +44,12 @@ impl RequestCancelOrder<'_> {
         let order = &mut ctx.accounts.order.data;
         order.status = OrderStatus::CancelRequested;
 
-        order.refund_requested_at = Clock::get()?.unix_timestamp as u32;
+        order.cancel_requested_at = Clock::get()?.unix_timestamp as u32;
 
         // Emit cancel requested event to notify solvers to not fill the order any longer
-        emit_cpi!(CancelRequest {
+        emit_cpi!(CancelRequested {
             order_id,
-            refund_requested_at: order.refund_requested_at,
+            cancel_requested_at: order.cancel_requested_at,
         });
 
         Ok(())
@@ -58,7 +58,7 @@ impl RequestCancelOrder<'_> {
 }
 
 #[event]
-pub struct CancelRequest {
+pub struct CancelRequested {
     pub order_id: [u8; 32],
-    pub refund_requested_at: u32,
+    pub cancel_requested_at: u32,
 }

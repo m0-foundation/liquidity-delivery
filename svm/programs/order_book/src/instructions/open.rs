@@ -138,7 +138,7 @@ impl OpenOrder<'_> {
                 nonce: ctx.accounts.sender_nonce_account.value,
                 dest_chain_id: params.dest_chain_id,
                 fill_deadline: params.fill_deadline,
-                refund_requested_at: 0,
+                cancel_requested_at: 0,
                 token_in: ctx.accounts.token_in_mint.key(),
                 token_out: params.token_out,
                 amount_in: params.amount_in as u128,
@@ -184,7 +184,7 @@ impl OpenOrder<'_> {
 
         // Emit the event
         emit_cpi!(
-            OrderOpen {
+            OrderOpened {
                 order_id,
                 token_in: ctx.accounts.token_in_mint.key(),
                 amount_in: params.amount_in,
@@ -200,7 +200,7 @@ impl OpenOrder<'_> {
 }
 
 #[event]
-pub struct OrderOpen {
+pub struct OrderOpened {
     pub order_id: [u8; 32],
     pub token_in: Pubkey,
     pub amount_in: u64,

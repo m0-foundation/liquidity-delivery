@@ -79,12 +79,12 @@ impl ClaimRefund<'_> {
         let current_timestamp = Clock::get()?.unix_timestamp as u32;
         if order.status == OrderStatus::Created {
             require!(
-                order.fill_deadline + finality_buffer < current_timestamp,
+                order.fill_deadline + finality_buffer <= current_timestamp,
                 OrderBookError::FinalityPending
             )
         } else if order.status == OrderStatus::CancelRequested {
             require!(
-                order.refund_requested_at + finality_buffer < current_timestamp,
+                order.cancel_requested_at + finality_buffer <= current_timestamp,
                 OrderBookError::FinalityPending
             )
         } else {
@@ -119,6 +119,7 @@ impl ClaimRefund<'_> {
 
         emit_cpi!(RefundClaimed {
             order_id,
+            sender: ctx.accounts.sender.key(),
             amount,
         });
 
@@ -131,5 +132,6 @@ impl ClaimRefund<'_> {
 #[event]
 pub struct RefundClaimed {
     pub order_id: [u8; 32],
+    pub sender: Pubkey,
     pub amount: u64,
 }
