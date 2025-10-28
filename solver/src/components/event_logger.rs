@@ -1,18 +1,14 @@
 use async_trait::async_trait;
-use slog::{info, Logger};
+use tracing::info;
 
-use crate::components::ComponentParams;
 use crate::error::Result;
 use crate::events::{EventHandler, SolverEvent};
 
-pub struct EventLogger {
-    logger: Logger,
-}
+pub struct EventLogger {}
 
 impl EventLogger {
-    pub fn new(params: &ComponentParams) -> Self {
-        let logger = params.logger.new(slog::o!("component" => "EventLogger"));
-        Self { logger }
+    pub fn new() -> Self {
+        Self {}
     }
 }
 
@@ -30,103 +26,66 @@ impl EventHandler for EventLogger {
         match event {
             SolverEvent::OrderCreated(e) => {
                 info!(
-                    self.logger,
-                    "OrderCreated";
-                    "order_id" => %e.order_id,
-                    "from_asset" => hex::encode(e.order.token_in),
-                    "to_asset" => hex::encode(e.order.token_out),
-                    "amount" => %e.order.amount_out,
+                    event = "OrderCreated",
+                    order_id = %e.order_id,
+                    timestamp = e.timestamp,
                 );
+            }
+            SolverEvent::Start => {
+                info!(event = "Start");
+            }
+            SolverEvent::Stop => {
+                info!(event = "Stop");
             }
             SolverEvent::OrderFill(e) => {
                 info!(
-                    self.logger,
-                    "OrderFill";
-                    "order_id" => %e.order_id,
-                    "amount" => %e.amount,
+                    event = "OrderFill",
+                    order_id = %e.order_id,
+                    timestamp = e.timestamp,
+                    amount = %e.amount,
                 );
             }
             SolverEvent::OrderRejected(e) => {
                 info!(
-                    self.logger,
-                    "OrderRejected";
-                    "order_id" => %e.order_id,
-                    "reason" => %e.reason,
+                    event = "OrderRejected",
+                    order_id = %e.order_id,
+                    timestamp = e.timestamp,
+                    reason = %e.reason,
                 );
             }
             SolverEvent::OrderCancelRequest(e) => {
                 info!(
-                    self.logger,
-                    "OrderCancelRequest";
-                    "order_id" => %e.order_id,
-                    "requested_at" => e.requested_at,
+                    event = "OrderCancelRequest",
+                    order_id = %e.order_id,
+                    timestamp = e.timestamp,
+                    new_fill_deadline = e.new_fill_deadline,
                 );
             }
             SolverEvent::OrderRefundClaimed(e) => {
                 info!(
-                    self.logger,
-                    "OrderRefundClaimed";
-                    "order_id" => %e.order_id,
-                    "sender" => %e.sender,
-                    "amount_refunded" => %e.amount_refunded,
+                    event = "OrderRefundClaimed",
+                    order_id = %e.order_id,
+                    timestamp = e.timestamp,
+                    sender = %e.sender,
+                    amount_refunded = %e.amount_refunded,
                 );
             }
             SolverEvent::OrderCompleted(e) => {
                 info!(
-                    self.logger,
-                    "OrderCompleted";
-                    "order_id" => %e.order_id,
+                    event = "OrderCompleted",
+                    order_id = %e.order_id,
+                    timestamp = e.timestamp,
                 );
             }
-            SolverEvent::RequestHold(e) => {
+            SolverEvent::RequestRebalance(e) => {
                 info!(
-                    self.logger,
-                    "RequestHold";
-                    "order_id" => %e.order_id,
-                    "asset" => ?e.asset,
-                    "amount" => %e.amount,
+                    event = "RequestRebalance",
+                    target_order_id = %e.target_order_id,
+                    timestamp = e.timestamp,
+                    asset = ?e.asset,
+                    amount = %e.amount,
                 );
             }
-            SolverEvent::HoldSuccessful(e) => {
-                info!(
-                    self.logger,
-                    "HoldSuccessful";
-                    "order_id" => %e.order_id,
-                );
-            }
-            SolverEvent::RequestFillOrder(e) => {
-                info!(
-                    self.logger,
-                    "RequestFillOrder";
-                    "order_id" => %e.order_id,
-                    "fill_amount" => %e.amount,
-                );
-            }
-            SolverEvent::FillOrderSuccessful(e) => {
-                info!(
-                    self.logger,
-                    "FillOrderSuccessful";
-                    "order_id" => %e.order_id,
-                );
-            }
-            SolverEvent::RequestSwap(e) => {
-                info!(
-                    self.logger,
-                    "RequestSwap";
-                    "order_id" => %e.order_id,
-                    "from_token" => %e.token_in.symbol,
-                    "to_asset" => %e.token_out.symbol,
-                    "amount" => %e.amount_in,
-                );
-            }
-            SolverEvent::SwapSuccessful(e) => {
-                info!(
-                    self.logger,
-                    "SwapSuccessful";
-                    "order_id" => %e.order_id,
-                );
-            }
-            _ => {}
         }
 
         Ok(vec![])

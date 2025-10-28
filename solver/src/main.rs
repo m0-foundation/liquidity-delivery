@@ -1,42 +1,32 @@
-use slog::{info, Drain, Logger};
 use solver::config::{Config, Environment};
 use std::error::Error;
+use tracing_subscriber::layer::SubscriberExt;
+use tracing_subscriber::util::SubscriberInitExt;
 
 #[tokio::main]
-async fn main() -> Result<(), Box<dyn Error + Send + Sync>> {
-    let config_path = std::env::args()
-        .nth(1)
-        .unwrap_or_else(|| "config.yaml".to_string());
+async fn main() -> Result<(), Box<dyn Error>> {
+    let _ = dotenvy::dotenv();
+    let config = Config::from_env()?;
 
-    let config = Config::from_file(&config_path)?;
-
-    // Create logger
-    let drain = if config.environment == Environment::Production {
+    if config.environment == Environment::Production {
         // JSON format for production
-        let drain = slog_json::Json::default(std::io::stdout()).fuse();
-        slog_async::Async::new(drain).build().fuse()
+        tracing_subscriber::registry()
+            .with(tracing_subscriber::fmt::layer().json())
+            .with(config.log_level)
+            .init();
     } else {
         // Human-readable format for development
-        let decorator = slog_term::TermDecorator::new().build();
-        let drain = slog_term::FullFormat::new(decorator).build().fuse();
-        slog_async::Async::new(drain).build().fuse()
-    };
+        tracing_subscriber::registry()
+            .with(tracing_subscriber::fmt::layer())
+            .with(config.log_level)
+            .init();
+    }
 
-    let logger = Logger::root(
-        drain,
-        slog::o!(
-            "timestamp" => slog::FnValue(|_| {
-                chrono::Utc::now().to_rfc3339_opts(chrono::SecondsFormat::Millis, true)
-            }),
-            "environment" => config.environment.to_str()
-        ),
-    );
-
-    let shutdown_tx = solver::run_solver(config, logger.clone()).await?;
+    let shutdown_tx = solver::run_solver(config).await?;
 
     // Wait for SIGINT (Ctrl+C)
     tokio::signal::ctrl_c().await?;
-    info!(logger, "Received shutdown signal");
+    tracing::info!("Received shutdown signal");
     let _ = shutdown_tx.send(());
 
     // Wait for components to shutdown gracefully

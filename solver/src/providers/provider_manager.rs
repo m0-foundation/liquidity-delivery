@@ -1,50 +1,57 @@
-use alloy::primitives::Address;
-use anchor_client::{
-    solana_client::nonblocking::rpc_client::RpcClient, solana_sdk::pubkey::Pubkey,
+use alloy::{
+    network::Ethereum,
+    providers::{
+        fillers::{BlobGasFiller, ChainIdFiller, FillProvider, GasFiller, JoinFill, NonceFiller},
+        Identity, ProviderBuilder, RootProvider,
+    },
 };
+use anchor_client::solana_client::rpc_client::RpcClient;
 use governor::{
     clock::DefaultClock,
     state::{InMemoryState, NotKeyed},
     Quota, RateLimiter,
 };
 use m0_liquidity_sdk::types::ChainRuntime;
-use solana_client::nonblocking::pubsub_client::PubsubClient;
 use std::collections::HashMap;
 use std::num::NonZeroU32;
 use std::sync::Arc;
 use tokio::sync::RwLock;
 
-use crate::{config::ChainConfig, providers::EvmFillProvider};
-use crate::{
-    error::{Result, SolverError},
-    providers::Signers,
-};
-use crate::{utils::chain_runtime, Config};
+use crate::config::ChainConfig;
+use crate::error::{Result, SolverError};
+use crate::utils::chain_runtime;
+
+/// Type for the EVM provider
+type EvmProviderInner = FillProvider<
+    JoinFill<
+        Identity,
+        JoinFill<GasFiller, JoinFill<BlobGasFiller, JoinFill<NonceFiller, ChainIdFiller>>>,
+    >,
+    RootProvider<Ethereum>,
+>;
 
 /// Wrapper around EVM provider with rate limiting
 pub struct EvmProvider {
-    provider: EvmFillProvider,
+    provider: EvmProviderInner,
     rate_limiter: Arc<RateLimiter<NotKeyed, InMemoryState, DefaultClock>>,
 }
 
 impl EvmProvider {
     /// Get a reference to the provider, waiting for rate limit if needed
-    pub async fn provider(&self) -> &EvmFillProvider {
+    pub async fn provider(&self) -> &EvmProviderInner {
         // Wait until rate limiter allows the request
         self.rate_limiter.until_ready().await;
         &self.provider
     }
 
     /// Get a reference to the provider (bypasses rate limiting)
-    #[allow(dead_code)]
-    pub fn priority_provider(&self) -> &EvmFillProvider {
+    pub fn priority_provider(&self) -> &EvmProviderInner {
         &self.provider
     }
 }
 
 /// Wrapper around SVM RPC client with rate limiting
 pub struct SvmProvider {
-    pub pubsub_client: Arc<PubsubClient>,
     client: Arc<RpcClient>,
     rate_limiter: Arc<RateLimiter<NotKeyed, InMemoryState, DefaultClock>>,
 }
@@ -57,7 +64,6 @@ impl SvmProvider {
     }
 
     /// Get a reference to the underlying client (bypasses rate limiting)
-    #[allow(dead_code)]
     pub fn priority_client(&self) -> &RpcClient {
         &self.client
     }
@@ -67,68 +73,88 @@ impl SvmProvider {
 pub struct ProviderManager {
     evm_providers: Arc<RwLock<HashMap<u32, Arc<EvmProvider>>>>,
     svm_providers: Arc<RwLock<HashMap<u32, Arc<SvmProvider>>>>,
-    rate_limiter_quota: Quota,
-    pub svm_address: Pubkey,
-    pub evm_address: Address,
+    rate_limiter: Arc<RateLimiter<NotKeyed, InMemoryState, DefaultClock>>,
 }
 
 impl ProviderManager {
-    pub fn new(config: &Config) -> Self {
-        let rpc_cfg = &config.rpc_rate_limit;
-        let quota = Quota::per_second(NonZeroU32::new(rpc_cfg.max_requests_per_second).unwrap())
-            .allow_burst(NonZeroU32::new(rpc_cfg.burst_size).unwrap());
+    /// Create a new provider manager
+    ///
+    /// # Arguments
+    /// * `max_requests_per_second` - Maximum sustained requests per second across all chains
+    /// * `burst_size` - Maximum burst capacity
+    pub fn new(max_requests_per_second: u32, burst_size: u32) -> Self {
+        // Create quota: burst_size tokens that refill at max_requests_per_second rate
+        let quota = Quota::per_second(NonZeroU32::new(max_requests_per_second).unwrap())
+            .allow_burst(NonZeroU32::new(burst_size).unwrap());
+
+        let rate_limiter = RateLimiter::direct(quota);
 
         Self {
             evm_providers: Arc::new(RwLock::new(HashMap::new())),
             svm_providers: Arc::new(RwLock::new(HashMap::new())),
-            rate_limiter_quota: quota,
-            svm_address: config.signers.svm_address(),
-            evm_address: config.signers.evm_address(),
+            rate_limiter: Arc::new(rate_limiter),
         }
     }
 
-    pub async fn initialize(&self, chains: &[ChainConfig], signers: &Signers) -> Result<()> {
+    /// Initialize providers for all configured chains
+    pub async fn initialize(&self, chains: &[ChainConfig]) -> Result<()> {
         for chain in chains {
             match chain_runtime(chain.chain_id) {
                 ChainRuntime::Evm => {
-                    self.add_evm_provider(chain, signers).await?;
+                    self.add_evm_provider(chain).await?;
                 }
                 ChainRuntime::Svm => {
-                    self.add_svm_provider(chain, signers).await?;
+                    self.add_svm_provider(chain).await?;
                 }
             }
         }
 
-        Ok(())
-    }
-
-    async fn add_evm_provider(&self, chain: &ChainConfig, signers: &Signers) -> Result<()> {
-        self.evm_providers.write().await.insert(
-            chain.chain_id,
-            Arc::new(EvmProvider {
-                provider: signers.evm_provider(chain.rpc_url.clone())?,
-                rate_limiter: Arc::new(RateLimiter::direct(self.rate_limiter_quota)),
-            }),
+        tracing::info!(
+            evm_chains = self.evm_providers.read().await.len(),
+            svm_chains = self.svm_providers.read().await.len(),
+            "Initialized provider manager"
         );
 
         Ok(())
     }
 
-    async fn add_svm_provider(&self, chain: &ChainConfig, _signers: &Signers) -> Result<()> {
-        let client = Arc::new(RpcClient::new(chain.rpc_url.clone()));
-        let limiter = Arc::new(RateLimiter::direct(self.rate_limiter_quota));
-
-        let pubsub_client = Arc::new(PubsubClient::new(&chain.ws_url).await.map_err(|e| {
+    /// Add an EVM provider for a chain
+    async fn add_evm_provider(&self, chain: &ChainConfig) -> Result<()> {
+        let url = chain.rpc_url.parse().map_err(|e| {
             SolverError::Component(format!(
-                "Failed to create PubsubClient ({}): {}",
-                chain.ws_url, e
+                "Invalid RPC URL for chain {}: {}",
+                chain.chain_id, e
             ))
-        })?);
+        })?;
+
+        let provider = ProviderBuilder::new().connect_http(url);
+
+        let evm_provider = Arc::new(EvmProvider {
+            provider,
+            rate_limiter: self.rate_limiter.clone(),
+        });
+
+        self.evm_providers
+            .write()
+            .await
+            .insert(chain.chain_id, evm_provider);
+
+        tracing::debug!(
+            chain_id = chain.chain_id,
+            rpc_url = chain.rpc_url,
+            "Added EVM provider"
+        );
+
+        Ok(())
+    }
+
+    /// Add an SVM provider for a chain
+    async fn add_svm_provider(&self, chain: &ChainConfig) -> Result<()> {
+        let client = Arc::new(RpcClient::new(&chain.rpc_url));
 
         let svm_provider = Arc::new(SvmProvider {
             client,
-            pubsub_client,
-            rate_limiter: limiter,
+            rate_limiter: self.rate_limiter.clone(),
         });
 
         self.svm_providers
@@ -136,9 +162,16 @@ impl ProviderManager {
             .await
             .insert(chain.chain_id, svm_provider);
 
+        tracing::debug!(
+            chain_id = chain.chain_id,
+            rpc_url = chain.rpc_url,
+            "Added SVM provider"
+        );
+
         Ok(())
     }
 
+    /// Get an EVM provider for a chain
     pub async fn get_evm_provider(&self, chain_id: u32) -> Result<Arc<EvmProvider>> {
         self.evm_providers
             .read()
@@ -150,6 +183,7 @@ impl ProviderManager {
             })
     }
 
+    /// Get an SVM provider for a chain
     pub async fn get_svm_provider(&self, chain_id: u32) -> Result<Arc<SvmProvider>> {
         self.svm_providers
             .read()

@@ -1,5 +1,4 @@
 use crate::error::Result;
-use std::time::{SystemTime, UNIX_EPOCH};
 use tokio::sync::broadcast;
 
 use super::events::SolverEvent;
@@ -15,32 +14,15 @@ impl EventBus {
         Self { sender }
     }
 
+    /// Publish an event to all subscribers
     pub async fn publish(&self, event: SolverEvent) -> Result<()> {
         let _ = self.sender.send(event.clone());
         Ok(())
     }
 
+    /// Subscribe to events (returns a receiver)
     pub fn subscribe(&self) -> broadcast::Receiver<SolverEvent> {
         self.sender.subscribe()
-    }
-
-    pub fn start_heartbeat(&self) {
-        let sender = self.sender.clone();
-
-        tokio::spawn(async move {
-            let mut interval = tokio::time::interval(tokio::time::Duration::from_secs(1));
-
-            loop {
-                interval.tick().await;
-
-                let timestamp = SystemTime::now()
-                    .duration_since(UNIX_EPOCH)
-                    .unwrap()
-                    .as_millis();
-
-                let _ = sender.send(SolverEvent::Heartbeat(timestamp));
-            }
-        });
     }
 }
 

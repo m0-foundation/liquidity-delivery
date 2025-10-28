@@ -1,9 +1,8 @@
 mod components;
 pub mod config;
-mod contracts;
 mod error;
 mod events;
-pub mod providers;
+mod providers;
 mod stores;
 pub mod utils;
 
@@ -11,7 +10,6 @@ use components::{EvmEventListener, InventoryManager};
 pub use config::Config;
 use events::EventBus;
 use providers::ProviderManager;
-use slog::{info, Logger};
 use std::{error::Error, future::Future, sync::Arc, time::Duration};
 use tokio::{
     sync::broadcast::{self, Receiver},
@@ -19,26 +17,19 @@ use tokio::{
 };
 
 use crate::{
-    components::{ComponentParams, EvmWriter, OrderProcessor, QuoterClient, SvmEventListener},
+    components::{OrderProcessor, SvmEventListener},
     error::SolverError,
     events::{EventHandler, SolverEvent},
 };
 
 /// Initialize and run the solver application
 /// Returns a shutdown sender that can be used to stop the application
-pub async fn run_solver(
-    config: Config,
-    logger: Logger,
-) -> Result<broadcast::Sender<()>, Box<dyn Error + Send + Sync>> {
-    let environment = format!("{:?}", config.environment);
-    let network = format!("{:?}", config.network);
-    let chains_count = config.chains.len();
-    info!(
-        logger,
-        "Starting Solver Application";
-        "environment" => %environment,
-        "network" => %network,
-        "chains_count" => chains_count,
+pub async fn run_solver(config: Config) -> Result<broadcast::Sender<()>, Box<dyn Error>> {
+    tracing::info!(
+        environment = ?config.environment,
+        network = ?config.network,
+        chains_count = config.chains.len(),
+        "Starting Solver Application"
     );
 
     // Initialize event bus
@@ -48,54 +39,48 @@ pub async fn run_solver(
     let (shutdown_tx, _) = broadcast::channel::<()>(1);
 
     // Initialize global provider manager
-    let provider_manager = Arc::new(ProviderManager::new(&config));
-    provider_manager
-        .initialize(&config.chains, &config.signers)
-        .await?;
-
-    let params = ComponentParams {
-        event_bus: event_bus.clone(),
-        config: config.clone(),
-        logger: logger.clone(),
-        provider_manager: provider_manager.clone(),
-    };
+    let provider_manager = Arc::new(ProviderManager::new(
+        config.rate_limit.max_requests_per_second,
+        config.rate_limit.burst_size,
+    ));
+    provider_manager.initialize(&config.chains).await?;
 
     // Initialize components
-    let evm_listener = Arc::new(EvmEventListener::new(&params));
-    let evm_writer = Arc::new(EvmWriter::new(&params));
-    let svm_listener = Arc::new(SvmEventListener::new(&params));
-    let order_processor = Arc::new(OrderProcessor::new(&params));
-    let inventory_manager = Arc::new(InventoryManager::new(&params));
-    let event_logger = Arc::new(components::EventLogger::new(&params));
-    let order_timer = Arc::new(components::OrderTimer::new(&params));
-    let quoter_client = Arc::new(QuoterClient::new(&params));
+    let evm_listener = Arc::new(EvmEventListener::new(
+        event_bus.clone(),
+        config.chains.clone(),
+    ));
+    let svm_listener = Arc::new(SvmEventListener::new(
+        event_bus.clone(),
+        config.chains.clone(),
+        config.network,
+    ));
+    let order_processor = Arc::new(OrderProcessor::new(config.liquidity_api_url.clone()));
+    let inventory_manager = Arc::new(InventoryManager::new(config, provider_manager.clone()));
+    let event_logger = Arc::new(components::EventLogger::new());
+    let order_timer = Arc::new(components::OrderTimer::new());
 
     // Initialize all components
     evm_listener.initialize().await?;
-    evm_writer.initialize().await?;
     svm_listener.initialize().await?;
     order_processor.initialize().await?;
     inventory_manager.initialize().await?;
     event_logger.initialize().await?;
     order_timer.initialize().await?;
-    quoter_client.initialize().await?;
 
     // Spawn handlers for all components
-    register_component(&evm_listener, &event_bus, &shutdown_tx, &logger);
-    register_component(&evm_writer, &event_bus, &shutdown_tx, &logger);
-    register_component(&svm_listener, &event_bus, &shutdown_tx, &logger);
-    register_component(&order_processor, &event_bus, &shutdown_tx, &logger);
-    register_component(&inventory_manager, &event_bus, &shutdown_tx, &logger);
-    register_component(&event_logger, &event_bus, &shutdown_tx, &logger);
-    register_component(&order_timer, &event_bus, &shutdown_tx, &logger);
-    register_component(&quoter_client, &event_bus, &shutdown_tx, &logger);
+    register_component(&evm_listener, &event_bus, &shutdown_tx);
+    register_component(&svm_listener, &event_bus, &shutdown_tx);
+    register_component(&order_processor, &event_bus, &shutdown_tx);
+    register_component(&inventory_manager, &event_bus, &shutdown_tx);
+    register_component(&event_logger, &event_bus, &shutdown_tx);
+    register_component(&order_timer, &event_bus, &shutdown_tx);
 
-    // Let everything get started
-    info!(logger, "All components registered");
-    let _ = event_bus.publish(SolverEvent::Start).await;
+    // Give spawned tasks time to subscribe before publishing Start event
     sleep(Duration::from_millis(100)).await;
+    tracing::info!("All components registered");
 
-    event_bus.start_heartbeat();
+    let _ = event_bus.publish(SolverEvent::Start).await;
 
     Ok(shutdown_tx)
 }
@@ -105,7 +90,6 @@ fn register_component<T>(
     component: &Arc<T>,
     event_bus: &Arc<EventBus>,
     shutdown_tx: &broadcast::Sender<()>,
-    logger: &Logger,
 ) where
     T: EventHandler + 'static,
 {
@@ -114,7 +98,6 @@ fn register_component<T>(
         component.name(),
         event_bus.clone(),
         shutdown_tx.subscribe(),
-        logger.clone(),
         move |event| {
             let c = component_clone.clone();
             async move { c.handle_event(event).await }
@@ -126,18 +109,17 @@ fn spawn_event_handler<F, Fut>(
     component_name: &'static str,
     event_bus: Arc<EventBus>,
     mut shutdown_rx: Receiver<()>,
-    logger: Logger,
     handler: F,
 ) where
     F: Fn(SolverEvent) -> Fut + Send + 'static,
     Fut: Future<Output = Result<Vec<SolverEvent>, SolverError>> + Send + 'static,
 {
-    let mut receiver = event_bus.subscribe();
-
     tokio::spawn(async move {
+        let mut receiver = event_bus.subscribe();
         loop {
             tokio::select! {
                 _ = shutdown_rx.recv() => {
+                    tracing::info!("Shutting down event handler for {}", component_name);
                     let _ = handler(SolverEvent::Stop).await;
                     break;
                 },
@@ -146,34 +128,27 @@ fn spawn_event_handler<F, Fut>(
                     let event = match result {
                         Ok(event) => event,
                         Err(e) => {
-                            slog::error!(logger, "Error receiving event"; "component" => component_name, "error" => ?e);
+                            tracing::error!("Error receiving event on {}: {}", component_name, e);
                             continue;
                         }
                     };
 
                     // Handle event and get new events
-                    let start = std::time::Instant::now();
                     let new_events = match handler(event).await {
                         Ok(events) => events,
                         Err(e) => {
-                            slog::error!(logger, "Error handling event"; "component" => component_name, "error" => ?e);
+                            tracing::error!("{} failed to handle event: {}", component_name, e);
                             continue;
                         }
                     };
-                    let elapsed = start.elapsed();
-                    if elapsed.as_secs() > 10 {
-                        slog::warn!(logger, "Event handler took too long"; "component" => component_name, "duration_secs" => elapsed.as_secs_f64());
-                    }
 
                     // Publish new events
                     for new_event in new_events {
-                        let _ = event_bus.publish(new_event).await;
+                        if let Err(e) = event_bus.publish(new_event).await {
+                            tracing::error!("Failed to publish event from {}: {}", component_name, e);
+                        }
                     }
                 }
-            }
-
-            if receiver.len() > 3 {
-                slog::warn!(logger, "Event handler is falling behind"; "component" => component_name, "pending_events" => receiver.len());
             }
         }
     });

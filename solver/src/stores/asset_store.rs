@@ -10,8 +10,9 @@ use tokio::sync::RwLock;
 
 use crate::error::{Result, SolverError};
 use crate::events::{EventProcessor, SolverEvent};
-use crate::utils::{self, decode_evm_address};
+use crate::utils::{self, decode_evm_address, encode_evm_address};
 
+/// Event store for tracking order status
 pub struct AssetStore {
     assets: Arc<RwLock<HashMap<AssetKey, Asset>>>,
     liquidity_api_url: String,
@@ -31,18 +32,18 @@ impl AssetStore {
         }
     }
 
-    pub async fn get_asset(&self, address: [u8; 32], chain_id: u32) -> Option<Asset> {
+    pub async fn get_asset(&self, address: [u8; 32], chain_id: u32) -> Result<Option<Asset>> {
         let assets = self.assets.read().await;
-        assets.get(&AssetKey { address, chain_id }).cloned()
+        Ok(assets.get(&AssetKey { address, chain_id }).cloned())
     }
 
-    pub async fn get_assets_for_chain(&self, chain_id: u32) -> Vec<Asset> {
+    pub async fn get_assets_for_chain(&self, chain_id: u32) -> Result<Vec<Asset>> {
         let assets = self.assets.read().await;
-        assets
+        Ok(assets
             .iter()
             .filter(|(key, _)| key.chain_id == chain_id)
             .map(|(_, asset)| asset.clone())
-            .collect()
+            .collect())
     }
 
     pub fn get_native(chain: Chain) -> Asset {
@@ -110,6 +111,7 @@ impl EventProcessor for AssetStore {
             );
         }
 
+        tracing::info!("Loaded {} assets into AssetStore", assets.len());
         Ok(())
     }
 
