@@ -77,13 +77,20 @@ impl EventHandler for EventLogger {
                     timestamp = e.timestamp,
                 );
             }
-            SolverEvent::RequestRebalance(e) => {
+            SolverEvent::RequestHold(e) => {
                 info!(
-                    event = "RequestRebalance",
-                    target_order_id = %e.target_order_id,
+                    event = "RequestHoldEvent",
+                    order_id = %e.order_id,
                     timestamp = e.timestamp,
                     asset = ?e.asset,
                     amount = %e.amount,
+                );
+            }
+            SolverEvent::HoldSuccessful(e) => {
+                info!(
+                    event = "HoldSuccessfulEvent",
+                    order_id = %e.order_id,
+                    timestamp = e.timestamp,
                 );
             }
         }

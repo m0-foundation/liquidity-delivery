@@ -10,7 +10,7 @@ use tokio::sync::RwLock;
 
 use crate::error::{Result, SolverError};
 use crate::events::{EventProcessor, SolverEvent};
-use crate::utils::{self, decode_evm_address, encode_evm_address};
+use crate::utils::{self, decode_evm_address};
 
 /// Event store for tracking order status
 pub struct AssetStore {
