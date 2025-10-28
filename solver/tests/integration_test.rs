@@ -289,4 +289,5 @@ async fn test_order_processed() {
 
     // Check that the Order was picked up and not rejected
     assert!(suite.log_guard.contains("event=\"OrderCreated\" order_id=1134d1ebdad1d716b53d32a21600b69709b913385396ed35f68aa19022020beb"));
+    assert!(suite.log_guard.contains("Building fillOrder transaction"));
 }
