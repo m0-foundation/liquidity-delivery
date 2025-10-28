@@ -230,7 +230,7 @@ contract OrderBook is IOrderBook, OrderBookStorageLayout, AccessControlUpgradeab
 
         // Validate that the order can be cancelled and the caller is the sender
         if (order.status != OrderStatus.Created) revert InvalidOrderStatus();
-        if (uint256(order.fillDeadline) <= block.timestamp) revert OrderExpired();
+        if (uint256(order.fillDeadline) < block.timestamp) revert OrderExpired();
         if (order.sender != msg.sender) revert NotAuthorized();
 
         // Mark the order as cancel requested
@@ -244,32 +244,34 @@ contract OrderBook is IOrderBook, OrderBookStorageLayout, AccessControlUpgradeab
 
         if (order.destChainId == chainId) {
             // Local orders can be immediately refunded
-            _claimRefund(orderId_);
+            _claimRefund(orderId_, order);
         }
     }
 
     /// @inheritdoc IOrderBook
     function claimRefund(bytes32 orderId_) external override {
-        _claimRefund(orderId_);
-    }
-
-    function _claimRefund(bytes32 orderId_) internal {
         OrderBookStorageStruct storage $ = _getOrderBookStorageLocation();
         Order storage order = $.localOrders[orderId_];
-
+        
         // Validate that the order can be refunded
         // If the order is local, the finality buffer is 0
         uint32 finalityBuffer_ = order.destChainId == chainId ? 0 : $.destinations[order.destChainId].finalityBuffer;
         if (order.status == OrderStatus.Created) {
             // If the order is still in Created status, it can only be refunded if the fill deadline + finality buffer has passed
-            if (uint256(order.fillDeadline) + finalityBuffer_ > block.timestamp) revert FinalityPending();
+            if (uint256(order.fillDeadline) + finalityBuffer_ >= block.timestamp) revert FinalityPending();
         } else if (order.status == OrderStatus.CancelRequested) {
             // If the order is in CancelRequested status, it can only be refunded if the refund was requested at least finality buffer ago
-            if (uint256(order.cancelRequestedAt) + finalityBuffer_ > block.timestamp) revert FinalityPending();
+            if (uint256(order.cancelRequestedAt) + finalityBuffer_ >= block.timestamp) revert FinalityPending();
         } else {
             // If the order is in any other status, it cannot be refunded
             revert InvalidOrderStatus();
         }
+
+        _claimRefund(orderId_, order);
+    }
+
+    function _claimRefund(bytes32 orderId_, Order storage order) internal {
+        OrderBookStorageStruct storage $ = _getOrderBookStorageLocation();
 
         // Calculate the refund amount
         uint128 amountInRemaining_ = order.amountIn - $.filledAmounts[orderId_].amountInReleased;
