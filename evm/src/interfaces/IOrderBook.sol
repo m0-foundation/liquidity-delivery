@@ -111,7 +111,8 @@ interface IOrderBook {
     /**
      * @notice Parameters required to open a gasless order onchain
      * @dev Addresses on the destination chain are stored as bytes32 to support non-EVM
-     * @dev This payload is hashed and included as the internal digest of the EIP-712 payload required for gasless order submission
+     * @dev This payload is hashed and included as the internal digest of the
+     *      EIP-712 payload required for gasless order submission
      * @param version Version of the contract the order is created for
      * @param sender Address that provided the funds on the origin chain, must sign the payload
      * @param nonce Unique identifier for the order, must match the sender's next nonce on this chain
@@ -308,7 +309,8 @@ interface IOrderBook {
      * @notice Opens a gasless order on behalf of a user.
      * @dev More flexible method relying on an offchain signature to authorize order creation
      * @param orderParams_ gasless order creation parameters (see GaslessOrderParams definition)
-     * @param orderSignature_ Order sender's signature of the EIP-712 payload containing the orderParams (see getGaslessOrderDigest)
+     * @param orderSignature_ Order sender's signature of the EIP-712 payload
+     *        containing the orderParams (see getGaslessOrderDigest)
      * @return The unique ID of the opened order
      */
     function openOrderFor(
@@ -318,9 +320,10 @@ interface IOrderBook {
 
     /**
      * @notice Opens a gasless order on behalf of a user with an EIP-2612 permit signature for token approval
-     * @dev More flexible method relying on an offchain signature to authorize order creation, bundles token approval as well
+     * @dev More flexible method relying on an offchain signature to authorize order creation
      * @param orderParams_ gasless order creation parameters (see GaslessOrderParams definition)
-     * @param orderSignature_ Order sender's signature of the EIP-712 payload containing the orderParams (see getGaslessOrderDigest)
+     * @param orderSignature_ Order sender's signature of the EIP-712 payload
+     *        containing the orderParams (see getGaslessOrderDigest)
      * @param deadline_ deadline for the permit signature
      * @param v_ v parameter of the permit signature
      * @param r_ r parameter of the permit signature
@@ -338,9 +341,10 @@ interface IOrderBook {
 
     /**
      * @notice Opens a gasless order on behalf of a user with an EIP-2612 permit signature for token approval
-     * @dev More flexible method relying on an offchain signature to authorize order creation, bundles token approval as well
+     * @dev More flexible method relying on an offchain signature to authorize order creation
      * @param orderParams_ gasless order creation parameters (see GaslessOrderParams definition)
-     * @param orderSignature_ Order sender's signature of the EIP-712 payload containing the orderParams (see getGaslessOrderDigest)
+     * @param orderSignature_ Order sender's signature of the EIP-712 payload
+     *        containing the orderParams (see getGaslessOrderDigest)
      * @param deadline_ deadline for the permit signature
      * @param permitSignature_ packed encoding of the permit signature
      * @return The unique ID of the opened order
@@ -405,7 +409,8 @@ interface IOrderBook {
      * @dev Must be DEFAULT_ADMIN_ROLE to call
      * @param destChainId_ The chain ID for the destination chain used by the messenger
      * @param isSupported_ whether support for the chain should be enabled (true activates, false deactivates)
-     * @param finalityBuffer_ duration (in seconds) to wait for messages from the chain to be finalized after deadlines for safe processing
+     * @param finalityBuffer_ duration (in seconds) to wait for messages from the destination
+     *        chain to be finalized after deadlines for safe processing
      */
     function setDestinationConfig(uint32 destChainId_, bool isSupported_, uint32 finalityBuffer_) external;
 
@@ -425,7 +430,7 @@ interface IOrderBook {
 
     /**
      * @notice Returns the amount out filled and amount in released for an order with this chain as the destination
-     * @dev The order must be settled on this chain (i.e. this chain is its destination) or the information will not be available
+     * @dev The order must be settled on this chain or the information will not be available
      */
     function getFilledAmounts(bytes32 orderId_) external view returns (FilledAmounts memory);
 

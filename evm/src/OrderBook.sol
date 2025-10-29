@@ -3,7 +3,9 @@ pragma solidity 0.8.26;
 
 import { IERC20 } from "../lib/common/src/interfaces/IERC20.sol";
 import { IERC20Extended } from "../lib/common/src/interfaces/IERC20Extended.sol";
-import { AccessControlUpgradeable } from "../lib/common/lib/openzeppelin-contracts-upgradeable/contracts/access/AccessControlUpgradeable.sol";
+import { 
+    AccessControlUpgradeable
+} from "../lib/common/lib/openzeppelin-contracts-upgradeable/contracts/access/AccessControlUpgradeable.sol";
 import { ERC712ExtendedUpgradeable } from "../lib/common/src/ERC712ExtendedUpgradeable.sol";
 
 import { IOrderBook } from "./interfaces/IOrderBook.sol";
@@ -332,10 +334,12 @@ contract OrderBook is IOrderBook, OrderBookStorageLayout, AccessControlUpgradeab
         // If the order is local, the finality buffer is 0
         uint32 finalityBuffer_ = order.destChainId == chainId ? 0 : $.destinations[order.destChainId].finalityBuffer;
         if (order.status == OrderStatus.Created) {
-            // If the order is still in Created status, it can only be refunded if the fill deadline + finality buffer has passed
+            // If the order is still in Created status,
+            // it can only be refunded if the fill deadline + finality buffer has passed
             if (uint256(order.fillDeadline) + finalityBuffer_ >= block.timestamp) revert FinalityPending();
         } else if (order.status == OrderStatus.CancelRequested) {
-            // If the order is in CancelRequested status, it can only be refunded if the refund was requested at least finality buffer ago
+            // If the order is in CancelRequested status,
+            // it can only be refunded if the refund was requested at least finality buffer ago
             if (uint256(order.cancelRequestedAt) + finalityBuffer_ >= block.timestamp) revert FinalityPending();
         } else {
             // If the order is in any other status, it cannot be refunded
