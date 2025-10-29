@@ -266,7 +266,7 @@ interface IOrderBook {
         uint128 amountOutFilled;
     }
 
-    /* ========== External Functions ========== */
+    /* ========== Creating Orders ========== */
 
     /** 
      * @notice Opens an order
@@ -312,7 +312,8 @@ interface IOrderBook {
      * @notice Opens a gasless order on behalf of a user.
 	 * @dev More flexible method relying on an offchain signature to authorize order creation
 	 * @param orderParams_ gasless order creation parameters (see GaslessOrderParams definition)
-	 * @param orderSignature_ Order sender's signature of the EIP-712 payload containing the orderParams
+	 * @param orderSignature_ Order sender's signature of the EIP-712 payload containing the orderParams (see getGaslessOrderDigest)
+     * @return The unique ID of the opened order
 	 */
 	function openOrderFor(GaslessOrderParams calldata orderParams_, bytes calldata orderSignature_) external returns (bytes32);
 
@@ -320,7 +321,7 @@ interface IOrderBook {
      * @notice Opens a gasless order on behalf of a user with an EIP-2612 permit signature for token approval
      * @dev More flexible method relying on an offchain signature to authorize order creation, bundles token approval as well
      * @param orderParams_ gasless order creation parameters (see GaslessOrderParams definition)
-     * @param orderSignature_ Order sender's signature of the EIP-712 payload containing the orderParams
+     * @param orderSignature_ Order sender's signature of the EIP-712 payload containing the orderParams (see getGaslessOrderDigest)
      * @param deadline_ deadline for the permit signature
      * @param v_ v parameter of the permit signature
      * @param r_ r parameter of the permit signature
@@ -340,7 +341,7 @@ interface IOrderBook {
      * @notice Opens a gasless order on behalf of a user with an EIP-2612 permit signature for token approval
      * @dev More flexible method relying on an offchain signature to authorize order creation, bundles token approval as well
      * @param orderParams_ gasless order creation parameters (see GaslessOrderParams definition)
-     * @param orderSignature_ Order sender's signature of the EIP-712 payload containing the orderParams
+     * @param orderSignature_ Order sender's signature of the EIP-712 payload containing the orderParams (see getGaslessOrderDigest)
      * @param deadline_ deadline for the permit signature
      * @param permitSignature_ packed encoding of the permit signature
      * @return The unique ID of the opened order
@@ -352,6 +353,8 @@ interface IOrderBook {
         bytes memory permitSignature_
     ) external returns (bytes32);
 
+    /* ========== Refunding Orders ========== */
+
     /**
      * @notice Request cancellation of an order before its fill deadline
      * @dev Must be called by the order's sender
@@ -359,13 +362,13 @@ interface IOrderBook {
      */
     function requestCancelOrder(bytes32 orderId_) external;
 
-    // /**
-    //  * @notice Request cancellation of an order before its fill deadline
-    //  * @dev Can be called by anyone with a valid signature from the order's sender
-    //  * @param orderId_ ID of the order to cancel
-    //  * @param signature_ Order sender's signature of the EIP-712 payload containing the orderId
-    //  */
-    // function requestCancelOrderFor(bytes32 orderId_, bytes calldata signature_) external;
+    /**
+     * @notice Request cancellation of an order before its fill deadline
+     * @dev Can be called by anyone with a valid signature from the order's sender
+     * @param orderId_ ID of the order to cancel
+     * @param signature_ Order sender's signature of the EIP-712 payload (see getCancelRequestDigest)
+     */
+    function requestCancelOrderFor(bytes32 orderId_, bytes calldata signature_) external;
 
     /**
      * @notice Refund any remaining unfilled amount of an order to the originator
@@ -377,6 +380,8 @@ interface IOrderBook {
      * @param  orderId_ ID of the order to claim a refund for
      */
     function claimRefund(bytes32 orderId_) external;
+
+    /* ========== Filling Orders ========== */
 
     /**
      * @notice Fill an order on this chain
@@ -437,5 +442,17 @@ interface IOrderBook {
      */
     function getDestinationFinalityBuffer(uint32 destChainId_) external view returns (uint32);
 
+    /* ========== EIP-712 Digest Functions ========== */
+
+    /**
+     * @notice Returns the EIP-712 digest that a user must sign to open a gasless order
+     * @param params_ gasless order creation parameters (see GaslessOrderParams definition)
+     */
     function getGaslessOrderDigest(GaslessOrderParams memory params_) external view returns (bytes32);
+
+    /**
+     * @notice Returns the EIP-712 digest that a user must sign to request order cancellation gaslessly
+     * @param orderId_ ID of the order to cancel
+     */
+    function getCancelRequestDigest(bytes32 orderId_) external view returns (bytes32);
 }

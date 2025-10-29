@@ -51,6 +51,10 @@ contract OrderBook is IOrderBook, OrderBookStorageLayout, AccessControlUpgradeab
     /// @dev keccak256("GaslessOrderParams(uint16 version,address sender,uint64 nonce,uint32 originChainId,uint32 destChainId,uint32 fillDeadline,address tokenIn,bytes32 tokenOut,uint128 amountIn,uint128 amountOut,bytes32 recipient,bytes32 solver)")
     bytes32 public constant GASLESS_ORDER_TYPEHASH = 0xdcc220f897990a71a7c6f1069339af0681016bb96f2d791f2214e234d7029603;
 
+    /// @notice the type hash used for cancel request signatures
+    /// @dev keccak256("CancelRequest(bytes32 orderId)")
+    bytes32 public constant CANCEL_REQUEST_TYPEHASH = 0xb527222e97466d0fc0fe78079eb3beced1bb20e1103e09bb21df58dde41c6c92;
+
     /// @notice the chain ID of this chain according to the messaging network used by this contract
     uint32 public immutable chainId; 
 
@@ -72,7 +76,7 @@ contract OrderBook is IOrderBook, OrderBookStorageLayout, AccessControlUpgradeab
         _grantRole(DEFAULT_ADMIN_ROLE, admin);
     }
 
-    /* ========== Initiating Orders ========== */
+    /* ========== Creating Orders ========== */
 
     /// @inheritdoc IOrderBook
     function openOrder(OrderParams calldata orderParams_) external override returns (bytes32) {
@@ -221,17 +225,46 @@ contract OrderBook is IOrderBook, OrderBookStorageLayout, AccessControlUpgradeab
         }));
     }
 
-    // ========== Refunding Orders ========== //
+    /* ========== Refunding Orders ========== */
 
     /// @inheritdoc IOrderBook
     function requestCancelOrder(bytes32 orderId_) external override {
         OrderBookStorageStruct storage $ = _getOrderBookStorageLocation();
         Order storage order = $.localOrders[orderId_];
 
+        // Validate that the caller is the sender
+        if (order.sender != msg.sender) revert NotAuthorized();
+
+        _requestCancelOrder(orderId_);
+    }
+
+    /// @inheritdoc IOrderBook
+    function requestCancelOrderFor(
+        bytes32 orderId_,
+        bytes calldata signature_
+    ) external override {
+        // Load order to get sender
+        OrderBookStorageStruct storage $ = _getOrderBookStorageLocation();
+        Order storage order = $.localOrders[orderId_];
+
+        // Verify signature
+        if (signature_.length == 64) {
+            (bytes32 r, bytes32 vs) = abi.decode(signature_, (bytes32, bytes32));
+            _revertIfInvalidSignature(order.sender, getCancelRequestDigest(orderId_), r, vs);
+        } else {
+            _revertIfInvalidSignature(order.sender, getCancelRequestDigest(orderId_), signature_);
+        }
+
+        _requestCancelOrder(orderId_);
+    }
+
+    function _requestCancelOrder(bytes32 orderId_) internal {
+        OrderBookStorageStruct storage $ = _getOrderBookStorageLocation();
+        Order storage order = $.localOrders[orderId_];
+
         // Validate that the order can be cancelled and the caller is the sender
         if (order.status != OrderStatus.Created) revert InvalidOrderStatus();
         if (uint256(order.fillDeadline) < block.timestamp) revert OrderExpired();
-        if (order.sender != msg.sender) revert NotAuthorized();
 
         // Mark the order as cancel requested
         order.status = OrderStatus.CancelRequested;
@@ -389,6 +422,7 @@ contract OrderBook is IOrderBook, OrderBookStorageLayout, AccessControlUpgradeab
 
     /* ========== Admin Functions ========== */
 
+    /// @inheritdoc IOrderBook
     function setDestinationConfig(uint32 destChainId_, bool isSupported_, uint32 finalityBuffer_) external override onlyRole(DEFAULT_ADMIN_ROLE) {
         if (isSupported_ && finalityBuffer_ == 0) revert InvalidFinalityBuffer();
 
@@ -444,6 +478,9 @@ contract OrderBook is IOrderBook, OrderBookStorageLayout, AccessControlUpgradeab
         return $.destinations[destChainId_].finalityBuffer;
     }
 
+    /* ========== EIP-712 Digest Functions ========== */
+
+    /// @inheritdoc IOrderBook
     function getGaslessOrderDigest(GaslessOrderParams memory orderParams_) public view override returns (bytes32) {
         return _getDigest(keccak256(abi.encode(
             GASLESS_ORDER_TYPEHASH,
@@ -459,6 +496,14 @@ contract OrderBook is IOrderBook, OrderBookStorageLayout, AccessControlUpgradeab
             orderParams_.amountOut,
             orderParams_.recipient,
             orderParams_.solver
+        )));
+    }
+
+    /// @inheritdoc IOrderBook
+    function getCancelRequestDigest(bytes32 orderId_) public view override returns (bytes32) {
+        return _getDigest(keccak256(abi.encode(
+            CANCEL_REQUEST_TYPEHASH,
+            orderId_
         )));
     }
 }
