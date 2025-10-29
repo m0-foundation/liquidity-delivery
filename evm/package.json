@@ -24,6 +24,15 @@
     "test-integration": "make -B integration",
     "test-invariant": "make -B invariant"
   },
+  "devDependencies": {
+    "husky": "catalog:",
+    "lint-staged": "catalog:",
+    "prettier": "catalog:",
+    "prettier-plugin-solidity": "catalog:",
+    "solhint": "catalog:",
+    "solhint-plugin-prettier": "catalog:",
+    "typescript": "catalog:"
+  },
   "files": [
     "src/**",
     "out/**"
