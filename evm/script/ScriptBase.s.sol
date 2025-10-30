@@ -1,11 +1,7 @@
 // SPDX-License-Identifier: UNLICENSED
 pragma solidity 0.8.26;
 
-import { console } from "../lib/forge-std/src/console.sol";
 import { Script } from "../lib/forge-std/src/Script.sol";
-
-import { ERC1967Proxy } from "../lib/common/lib/openzeppelin-contracts-upgradeable/lib/openzeppelin-contracts/contracts/proxy/ERC1967/ERC1967Proxy.sol";
-import { TransparentUpgradeableProxy } from "../lib/common/lib/openzeppelin-contracts-upgradeable/lib/openzeppelin-contracts/contracts/proxy/transparent/TransparentUpgradeableProxy.sol";
 
 contract ScriptBase is Script {
     struct Deployment {
@@ -13,12 +9,7 @@ contract ScriptBase is Script {
     }
 
     // Same address for all EVM chains
-    // TODO populate
-    address internal constant _PORTAL = 0x0000000000000000000000000000000000000000;
-
-    function _readKey(string memory parentNode_, string memory key_) internal pure returns (string memory) {
-        return string.concat(parentNode_, key_);
-    }
+    address internal constant _PORTAL = 0xD925C84b55E4e44a53749fF5F2a5A13F63D128fd;
 
     function _deployOutputPath(uint256 chainId_) internal view returns (string memory) {
         return string.concat(vm.projectRoot(), "/deployments/", vm.toString(chainId_), ".json");
@@ -32,5 +23,9 @@ contract ScriptBase is Script {
         bytes memory data = vm.parseJson(vm.readFile(_deployOutputPath(chainId_)));
         Deployment memory deployment_ = abi.decode(data, (Deployment));
         return deployment_.orderBook;
+    }
+    
+    function _readKey(string memory parentNode_, string memory key_) internal pure returns (string memory) {
+        return string.concat(parentNode_, key_);
     }
 }
