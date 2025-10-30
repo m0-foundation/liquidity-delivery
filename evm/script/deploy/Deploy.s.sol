@@ -49,10 +49,7 @@ contract Deploy is ScriptBase, DeployHelpers {
         proxy_ = _deployCreate3TransparentProxy(
             implementation_,
             admin_,
-            abi.encodeWithSelector(
-                OrderBook.initialize.selector,
-                admin_
-            ),
+            abi.encodeWithSelector(OrderBook.initialize.selector, admin_),
             _computeSalt(deployer_, _ORDER_BOOK_CONTRACT_NAME)
         );
     }

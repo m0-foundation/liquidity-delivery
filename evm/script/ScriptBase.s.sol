@@ -24,7 +24,7 @@ contract ScriptBase is Script {
         Deployment memory deployment_ = abi.decode(data, (Deployment));
         return deployment_.orderBook;
     }
-    
+
     function _readKey(string memory parentNode_, string memory key_) internal pure returns (string memory) {
         return string.concat(parentNode_, key_);
     }
