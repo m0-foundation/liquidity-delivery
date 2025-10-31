@@ -16,7 +16,6 @@ no-idl = []
 no-log-ix-name = []
 idl-build = ["anchor-lang/idl-build", "anchor-spl/idl-build"]
 
-
 [dependencies]
 anchor-lang = { version = "0.31.1", features = ["init-if-needed", "event-cpi"] }
 anchor-spl = "0.31.1"
@@ -24,3 +23,5 @@ messenger = { version = "0.1.0", path = "../messenger", features = ["cpi"]}
 
 [dev-dependencies]
 alloy = { version = "1.0.41", features = ["sol-types"] }
+anchor-litesvm = "0.2"
+litesvm = "0.8.1"
