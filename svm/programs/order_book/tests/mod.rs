@@ -23,7 +23,7 @@ impl OrderBookTest {
         // Ensure that all the standard SPL programs are also loaded
         let mut ctx = AnchorLiteSVM::build_with_program(
             order_book::ID,
-            include_bytes!("../../../target/deploy/order_book.so"),
+            include_bytes!("../../../../target/deploy/order_book.so"),
         );
 
         // Create users and fund them
