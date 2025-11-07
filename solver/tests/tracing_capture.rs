@@ -1,36 +1,17 @@
 use std::fmt::Debug;
 use std::io::{stderr, Write};
-use std::sync::{Arc, Mutex, RwLock};
+use std::sync::{Arc, Mutex, OnceLock, RwLock};
 use tracing::level_filters::LevelFilter;
 use tracing::Subscriber;
-use tracing_subscriber::{fmt::MakeWriter, layer::SubscriberExt, Layer};
+use tracing_subscriber::{
+    fmt::MakeWriter, layer::SubscriberExt, util::SubscriberInitExt, Layer, Registry,
+};
 
-/// A guard that manages a test-local tracing subscriber
-/// When dropped, it will flush logs if the test is panicking
-pub struct TestTracingGuard {
-    capture: CaptureLayer,
-    _guard: tracing::subscriber::DefaultGuard,
-}
-
-impl TestTracingGuard {
-    /// Check if any captured log contains the given substring
-    pub fn contains(&self, substring: &str) -> bool {
-        self.capture.contains(substring)
-    }
-}
-
-impl Drop for TestTracingGuard {
-    fn drop(&mut self) {
-        // Check if we're panicking (test failed)
-        if std::thread::panicking() {
-            self.capture.flush();
-        }
-    }
-}
+static GLOBAL_CAPTURE: OnceLock<CaptureLayer> = OnceLock::new();
 
 /// A layer that captures log messages for testing
 #[derive(Clone)]
-struct CaptureLayer {
+pub struct CaptureLayer {
     logs: Arc<RwLock<Vec<String>>>,
     writer: BufferedWriter,
 }
@@ -44,7 +25,7 @@ impl CaptureLayer {
     }
 
     /// Check if any captured log contains the given substring
-    fn contains(&self, substring: &str) -> bool {
+    pub fn contains(&self, substring: &str) -> bool {
         self.logs
             .read()
             .unwrap()
@@ -55,6 +36,12 @@ impl CaptureLayer {
     /// Flush buffered logs to stderr
     fn flush(&self) {
         self.writer.flush_to_stderr();
+    }
+
+    /// Clear all captured logs and the buffer
+    pub fn clear(&self) {
+        self.logs.write().unwrap().clear();
+        self.writer.clear();
     }
 }
 
@@ -95,28 +82,37 @@ where
     }
 }
 
-/// Initialize the tracing subscriber for a single test and return a guard
-/// Each call creates a new isolated subscriber for the test that is automatically
-/// cleaned up when the guard is dropped
-pub fn init_test_tracing() -> TestTracingGuard {
-    let writer = BufferedWriter::new();
-    let capture_layer = CaptureLayer::new(writer.clone());
-
-    let fmt_layer = tracing_subscriber::fmt::layer()
-        .with_writer(writer)
-        .with_filter(LevelFilter::INFO);
-
-    // Create a new subscriber for this test with a guard
-    let subscriber = tracing_subscriber::registry()
-        .with(capture_layer.clone())
-        .with(fmt_layer);
-
-    let guard = tracing::subscriber::set_default(subscriber);
-
-    TestTracingGuard {
-        capture: capture_layer,
-        _guard: guard,
+impl Drop for CaptureLayer {
+    fn drop(&mut self) {
+        // Check if we're panicking (test failed)
+        if std::thread::panicking() {
+            self.flush();
+        }
     }
+}
+
+/// Initialize the tracing subscriber for tests and return a capture layer
+pub fn init_test_tracing() -> CaptureLayer {
+    let capture = GLOBAL_CAPTURE
+        .get_or_init(|| {
+            let writer = BufferedWriter::new();
+            let capture_layer = CaptureLayer::new(writer.clone());
+
+            let fmt_layer = tracing_subscriber::fmt::layer()
+                .with_writer(writer)
+                .with_filter(LevelFilter::INFO);
+
+            Registry::default()
+                .with(capture_layer.clone())
+                .with(fmt_layer)
+                .init();
+
+            capture_layer
+        })
+        .clone();
+
+    capture.clear();
+    capture
 }
 
 /// A writer that buffers output and can be flushed on demand
@@ -138,6 +134,12 @@ impl BufferedWriter {
                 let _ = stderr().write_all(&buffer);
                 let _ = stderr().flush();
             }
+        }
+    }
+
+    fn clear(&self) {
+        if let Ok(mut buffer) = self.buffer.lock() {
+            buffer.clear();
         }
     }
 }
