@@ -1,5 +1,7 @@
 use anchor_lang::{prelude::*,solana_program::keccak};
 
+use crate::VERSION;
+
 #[repr(u8)]
 #[derive(AnchorDeserialize, AnchorSerialize, InitSpace, Clone, PartialEq)]
 pub enum OrderStatus {
@@ -99,6 +101,22 @@ impl OrderData {
 
     pub fn encode(&self) -> Vec<u8> {
         encode_order_data(self)
+    }
+
+    pub fn new_from_native_order(native_order: NativeOrder, origin_chain_id: u32) -> Self {
+        Self {
+            version: VERSION,
+            sender: native_order.sender.to_bytes(),
+            nonce: native_order.nonce,
+            origin_chain_id,
+            dest_chain_id: native_order.dest_chain_id,
+            fill_deadline: native_order.fill_deadline,
+            token_out: native_order.token_out,
+            amount_in: native_order.amount_in,
+            amount_out: native_order.amount_out,
+            recipient: native_order.recipient,
+            solver: native_order.solver
+        }
     }
 }
 
