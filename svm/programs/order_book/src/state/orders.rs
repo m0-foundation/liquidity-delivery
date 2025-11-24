@@ -3,7 +3,7 @@ use anchor_lang::{prelude::*,solana_program::keccak};
 use crate::VERSION;
 
 #[repr(u8)]
-#[derive(AnchorDeserialize, AnchorSerialize, InitSpace, Clone, PartialEq)]
+#[derive(AnchorDeserialize, AnchorSerialize, InitSpace, Clone, Debug, PartialEq)]
 pub enum OrderStatus {
     DoesNotExist,
     Created,

@@ -25,22 +25,20 @@ mod local_orders {
     //     [X] it reverts with an AccountDidNotDeserialize error    
     // [X] given the provided order_id does does not match the computed order id from the order data
     //   [X] it reverts with an ConstraintSeeds error
-    // [ ] given the order id does not match the order account provided
-    //   [ ] it reverts with an ConstraintSeeds error
-    // [ ] given the origin chain of the order is not the current chain
-    //   [ ] it reverts with an InvalidOriginChainId error
-    // [ ] given the order status is completed
-    //   [ ] it reverts with an InvalidOrderStatus error
-    // [ ] given all those checks pass and no fills have occured yet
-    //   [ ] given the amount_out_to_fill is greater than or equal to the amount out of the order
-    //     [ ] it transfers amount_out of token_out to the recipient
-    //     [ ] it transfers amount_in of token_in from the order book to the solver
-    //     [ ] it updates the order status to Completed
-    //     [ ] it updates amount_out_filled and amount_in_released on the order
-    //   [ ] given the amount_out_to_fill is less than the amount out of the 
-    //     [ ] it transfers amount_out_to_fill of token_out to the recipient
-    //     [ ] it transfers the proportional amount_in of token_in from the order book to the solver
-    //     [ ] it updates amount_out_filled and amount_in_released on the order
+    // [X] given the origin chain of the order is not the current chain
+    //   [X] it reverts with an InvalidOriginChainId error
+    // [X] given the order status is completed
+    //   [X] it reverts with an OrderNotFillable error
+    // [X] given all those checks pass and no fills have occured yet
+    //   [X] given the amount_out_to_fill is greater than or equal to the amount out of the order
+    //     [X] it transfers amount_out of token_out to the recipient
+    //     [X] it transfers amount_in of token_in from the order book to the solver
+    //     [X] it updates the order status to Completed
+    //     [X] it updates amount_out_filled and amount_in_released on the order
+    //   [X] given the amount_out_to_fill is less than the amount out of the order
+    //     [X] it transfers amount_out_to_fill of token_out to the recipient
+    //     [X] it transfers the proportional amount_in of token_in from the order book to the solver
+    //     [X] it updates amount_out_filled and amount_in_released on the order
 
     use anchor_litesvm::Pubkey;
     use order_book::{ORDER_SEED_PREFIX, OrderData};
@@ -369,19 +367,16 @@ mod local_orders {
         let mut test = OrderBookTest::new()?;
         test.initialize()?;
         let order_params = default_order_params(&test, "alice");
-        let expected_order_id = test.open_order("alice", "token-in-spl-6", &order_params)?;
-        let (_, native_order) = test.get_native_order_account(&expected_order_id)?;
+        let order_id = test.open_order("alice", "token-in-spl-6", &order_params)?;
+        let (_, native_order) = test.get_native_order_account(&order_id)?;
         let solver = test.get_user("solver");
         let fill_params = default_fill_params(&test);
 
-        let mut order_id = Pubkey::new_unique().to_bytes();
-        // Ensure that we don't randomly get the right ID, odds are very low
-        while order_id == expected_order_id {
-            order_id = Pubkey::new_unique().to_bytes();
-        }
+        let mut order_data = OrderData::new_from_native_order(native_order.data, CHAIN_ID);
+        // Change the amount_in to invalidate the order id
+        order_data.amount_in += 1;
 
-        let order_data = OrderData::new_from_native_order(native_order.data, CHAIN_ID);
-        let accounts = test.build_fill_native_order_accounts_from_order_data(&solver.pubkey(), &order_data)?;
+        let accounts = test.build_fill_native_order_accounts(&solver.pubkey(), order_id)?;
 
         let ix = test.ctx.program()
             .accounts(accounts)
@@ -395,20 +390,73 @@ mod local_orders {
             .instruction()?;
 
         test.ctx.execute_instruction(ix, &[&solver])?
-            .assert_anchor_error("ConstraintSeeds");
+            .assert_anchor_error("InvalidOrderId");
 
         Ok(())
     }
     
     #[test]
-    fn fill_native_order_success() -> Result<(), Box<dyn Error>> {
+    fn fill_native_order_invalid_origin_chain_id_reverts() -> Result<(), Box<dyn Error>> {
         let mut test = OrderBookTest::new()?;
         test.initialize()?;
         let order_params = default_order_params(&test, "alice");
         let order_id = test.open_order("alice", "token-in-spl-6", &order_params)?;
         let solver = test.get_user("solver");
         let fill_params = default_fill_params(&test);
-        
+
+        // Get the order data and modify origin_chain_id to be different from current chain
+        let (_, native_order) = test.get_native_order_account(&order_id)?;
+        let order_data = OrderData::new_from_native_order(native_order.data, DEST_CHAIN_ID); // set to wrong chain id
+
+        // Build accounts normally
+        let accounts = test.build_fill_native_order_accounts(&solver.pubkey(), order_id)?;
+
+        // Construct the instruction with modified order_data
+        let ix = test.ctx.program()
+            .accounts(accounts)
+            .args(
+                order_book::instruction::FillNativeOrder {
+                    order_id,
+                    order_data,
+                    fill_params
+                }
+            )
+            .instruction()?;
+
+        test.ctx.execute_instruction(ix, &[&solver])?
+            .assert_anchor_error("InvalidOrderId"); // this is checked before the origin chain id
+
+        Ok(())
+    }
+
+    #[test]
+    fn fill_native_order_already_completed_reverts() -> Result<(), Box<dyn Error>> {
+        let mut test = OrderBookTest::new()?;
+        test.initialize()?;
+        let order_params = default_order_params(&test, "alice");
+        let order_id = test.open_order("alice", "token-in-spl-6", &order_params)?;
+        let solver = test.get_user("solver");
+
+        // First, fill the order completely
+        let full_fill_params = order_book::instructions::fill::FillParams {
+            amount_out_to_fill: order_params.amount_out as u64, // Fill the entire amount
+            origin_recipient: solver.pubkey().to_bytes(),
+        };
+
+        let ix = test.create_fill_native_order_ix(
+            &solver.pubkey(),
+            order_id,
+            &full_fill_params
+        )?;
+        test.ctx.execute_instruction(ix, &[&solver])?
+            .assert_success();
+
+        // Verify the order is completed
+        let (_, order_data) = test.get_native_order_account(&order_id)?;
+        assert_eq!(order_data.data.status, order_book::state::OrderStatus::Completed);
+
+        // Now try to fill it again
+        let fill_params = default_fill_params(&test);
         let ix = test.create_fill_native_order_ix(
             &solver.pubkey(),
             order_id,
@@ -416,7 +464,368 @@ mod local_orders {
         )?;
 
         test.ctx.execute_instruction(ix, &[&solver])?
+            .assert_anchor_error(&format!("{:?}", OrderBookError::OrderNotFillable));
+
+        Ok(())
+    }
+
+    #[test]
+    fn fill_native_order_full_fill_success() -> Result<(), Box<dyn Error>> {
+        let mut test = OrderBookTest::new()?;
+        test.initialize()?;
+        let order_params = default_order_params(&test, "alice");
+        let order_id = test.open_order("alice", "token-in-spl-6", &order_params)?;
+        let solver = test.get_user("solver");
+
+        // Get token account addresses
+        let token_in_mint = test.get_mint("token-in-spl-6");
+        let alice_token_out_ata = test.get_ata("token-out-spl-6", "alice");
+        let solver_token_out_ata = test.get_ata("token-out-spl-6", "solver");
+        let solver_token_in_ata = test.get_ata("token-in-spl-6", "solver");
+        let order_account = test.ctx.svm.get_pda(
+            &[ORDER_SEED_PREFIX, &order_id],
+            &order_book::ID
+        );
+        let order_token_in_ata = get_associated_token_address(&order_account, &token_in_mint);
+
+        // Get initial balances
+        let alice_token_out_balance_before = test.get_token_balance(&alice_token_out_ata)?;
+        let solver_token_out_balance_before = test.get_token_balance(&solver_token_out_ata)?;
+        let solver_token_in_balance_before = test.get_token_balance(&solver_token_in_ata)?;
+        let order_token_in_balance_before = test.get_token_balance(&order_token_in_ata)?;
+
+        // Fill the entire order (amount_out_to_fill >= amount_out)
+        let full_fill_params = order_book::instructions::fill::FillParams {
+            amount_out_to_fill: order_params.amount_out as u64, // Fill the entire amount
+            origin_recipient: solver.pubkey().to_bytes(),
+        };
+
+        let ix = test.create_fill_native_order_ix(
+            &solver.pubkey(),
+            order_id,
+            &full_fill_params
+        )?;
+
+        test.ctx.execute_instruction(ix, &[&solver])?
             .assert_success();
+
+        // Get final balances
+        let alice_token_out_balance_after = test.get_token_balance(&alice_token_out_ata)?;
+        let solver_token_out_balance_after = test.get_token_balance(&solver_token_out_ata)?;
+        let solver_token_in_balance_after = test.get_token_balance(&solver_token_in_ata)?;
+        let order_token_in_balance_after = test.get_token_balance(&order_token_in_ata)?;
+
+        // Verify token transfers
+        // Recipient (alice) should receive amount_out of token_out
+        assert_eq!(
+            alice_token_out_balance_after,
+            alice_token_out_balance_before + order_params.amount_out as u64,
+            "Recipient should receive amount_out of token_out"
+        );
+
+        // Solver should pay amount_out of token_out
+        assert_eq!(
+            solver_token_out_balance_after,
+            solver_token_out_balance_before - order_params.amount_out as u64,
+            "Solver should pay amount_out of token_out"
+        );
+
+        // Solver should receive amount_in of token_in
+        assert_eq!(
+            solver_token_in_balance_after,
+            solver_token_in_balance_before + order_params.amount_in,
+            "Solver should receive amount_in of token_in"
+        );
+
+        // Order account should release amount_in of token_in
+        assert_eq!(
+            order_token_in_balance_after,
+            order_token_in_balance_before - order_params.amount_in,
+            "Order account should release amount_in of token_in"
+        );
+
+        // Verify order state
+        let (_, order_data) = test.get_native_order_account(&order_id)?;
+        assert_eq!(
+            order_data.data.status,
+            order_book::state::OrderStatus::Completed,
+            "Order status should be Completed"
+        );
+        assert_eq!(
+            order_data.data.amount_out_filled,
+            order_params.amount_out as u128,
+            "amount_out_filled should equal amount_out"
+        );
+        assert_eq!(
+            order_data.data.amount_in_released,
+            order_params.amount_in as u128,
+            "amount_in_released should equal amount_in"
+        );
+
+        Ok(())
+    }
+
+    #[test]
+    fn fill_native_order_partial_fill_success() -> Result<(), Box<dyn Error>> {
+        let mut test = OrderBookTest::new()?;
+        test.initialize()?;
+        let order_params = default_order_params(&test, "alice");
+        let order_id = test.open_order("alice", "token-in-spl-6", &order_params)?;
+        let solver = test.get_user("solver");
+
+        // Get token account addresses
+        let token_in_mint = test.get_mint("token-in-spl-6");
+        let alice_token_out_ata = test.get_ata("token-out-spl-6", "alice");
+        let solver_token_out_ata = test.get_ata("token-out-spl-6", "solver");
+        let solver_token_in_ata = test.get_ata("token-in-spl-6", "solver");
+        let order_account = test.ctx.svm.get_pda(
+            &[ORDER_SEED_PREFIX, &order_id],
+            &order_book::ID
+        );
+        let order_token_in_ata = get_associated_token_address(&order_account, &token_in_mint);
+
+        // Get initial balances
+        let alice_token_out_balance_before = test.get_token_balance(&alice_token_out_ata)?;
+        let solver_token_out_balance_before = test.get_token_balance(&solver_token_out_ata)?;
+        let solver_token_in_balance_before = test.get_token_balance(&solver_token_in_ata)?;
+        let order_token_in_balance_before = test.get_token_balance(&order_token_in_ata)?;
+
+        // Partial fill: fill only half of the order
+        let amount_out_to_fill = order_params.amount_out / 2;
+        let partial_fill_params = order_book::instructions::fill::FillParams {
+            amount_out_to_fill: amount_out_to_fill as u64,
+            origin_recipient: solver.pubkey().to_bytes(),
+        };
+
+        // Calculate expected amount_in to be released (proportional)
+        let expected_amount_in_released = (amount_out_to_fill as u128 * order_params.amount_in as u128) / order_params.amount_out as u128;
+
+        let ix = test.create_fill_native_order_ix(
+            &solver.pubkey(),
+            order_id,
+            &partial_fill_params
+        )?;
+
+        test.ctx.execute_instruction(ix, &[&solver])?
+            .assert_success();
+
+        // Get final balances
+        let alice_token_out_balance_after = test.get_token_balance(&alice_token_out_ata)?;
+        let solver_token_out_balance_after = test.get_token_balance(&solver_token_out_ata)?;
+        let solver_token_in_balance_after = test.get_token_balance(&solver_token_in_ata)?;
+        let order_token_in_balance_after = test.get_token_balance(&order_token_in_ata)?;
+
+        // Verify token transfers
+        // Recipient (alice) should receive amount_out_to_fill of token_out
+        assert_eq!(
+            alice_token_out_balance_after,
+            alice_token_out_balance_before + amount_out_to_fill as u64,
+            "Recipient should receive amount_out_to_fill of token_out"
+        );
+
+        // Solver should pay amount_out_to_fill of token_out
+        assert_eq!(
+            solver_token_out_balance_after,
+            solver_token_out_balance_before - amount_out_to_fill as u64,
+            "Solver should pay amount_out_to_fill of token_out"
+        );
+
+        // Solver should receive proportional amount_in of token_in
+        assert_eq!(
+            solver_token_in_balance_after,
+            solver_token_in_balance_before + expected_amount_in_released as u64,
+            "Solver should receive proportional amount_in of token_in"
+        );
+
+        // Order account should release proportional amount_in of token_in
+        assert_eq!(
+            order_token_in_balance_after,
+            order_token_in_balance_before - expected_amount_in_released as u64,
+            "Order account should release proportional amount_in of token_in"
+        );
+
+        // Verify order state
+        let (_, order_data) = test.get_native_order_account(&order_id)?;
+        assert_eq!(
+            order_data.data.status,
+            order_book::state::OrderStatus::Created,
+            "Order status should remain Created (not Completed)"
+        );
+        assert_eq!(
+            order_data.data.amount_out_filled,
+            amount_out_to_fill as u128,
+            "amount_out_filled should equal amount_out_to_fill"
+        );
+        assert_eq!(
+            order_data.data.amount_in_released,
+            expected_amount_in_released,
+            "amount_in_released should equal proportional amount"
+        );
+
+        // Verify we can fill it again
+        let second_fill_params = order_book::instructions::fill::FillParams {
+            amount_out_to_fill: amount_out_to_fill as u64, // Fill another half
+            origin_recipient: solver.pubkey().to_bytes(),
+        };
+
+        let ix = test.create_fill_native_order_ix(
+            &solver.pubkey(),
+            order_id,
+            &second_fill_params
+        )?;
+
+        test.ctx.svm.expire_blockhash();
+        test.ctx.execute_instruction(ix, &[&solver])?
+            .assert_success();
+
+        // Verify the order is now completed
+        let (_, order_data) = test.get_native_order_account(&order_id)?;
+        assert_eq!(
+            order_data.data.status,
+            order_book::state::OrderStatus::Completed,
+            "Order status should be Completed after second fill"
+        );
+
+        Ok(())
+    }
+
+    #[test]
+    fn fill_native_order_multiple_partial_fills() -> Result<(), Box<dyn Error>> {
+        let mut test = OrderBookTest::new()?;
+        test.initialize()?;
+        let order_params = default_order_params(&test, "alice");
+        let order_id = test.open_order("alice", "token-in-spl-6", &order_params)?;
+        let solver = test.get_user("solver");
+
+        // Get token account addresses
+        let token_in_mint = test.get_mint("token-in-spl-6");
+        let alice_token_out_ata = test.get_ata("token-out-spl-6", "alice");
+        let solver_token_out_ata = test.get_ata("token-out-spl-6", "solver");
+        let solver_token_in_ata = test.get_ata("token-in-spl-6", "solver");
+        let order_account = test.ctx.svm.get_pda(
+            &[ORDER_SEED_PREFIX, &order_id],
+            &order_book::ID
+        );
+        let order_token_in_ata = get_associated_token_address(&order_account, &token_in_mint);
+
+        // Track cumulative fills
+        let mut cumulative_amount_out_filled: u64 = 0;
+        let mut cumulative_amount_in_released: u64 = 0;
+
+        // Perform 4 fills: 3 partial fills of 25% each, then a final fill of the remaining 25%
+        let fill_amounts = vec![
+            order_params.amount_out / 4,  // 25%
+            order_params.amount_out / 4,  // 25%
+            order_params.amount_out / 4,  // 25%
+            order_params.amount_out / 4,  // 25% (final)
+        ];
+
+        for (i, &amount_out_to_fill) in fill_amounts.iter().enumerate() {
+            let is_final_fill = i == fill_amounts.len() - 1;
+
+            // Get balances before this fill
+            let alice_balance_before = test.get_token_balance(&alice_token_out_ata)?;
+            let solver_token_out_balance_before = test.get_token_balance(&solver_token_out_ata)?;
+            let solver_token_in_balance_before = test.get_token_balance(&solver_token_in_ata)?;
+            let order_balance_before = test.get_token_balance(&order_token_in_ata)?;
+
+            // Calculate expected amount_in to be released for this fill
+            let expected_amount_in_for_this_fill = (amount_out_to_fill as u128 * order_params.amount_in as u128) / order_params.amount_out as u128;
+
+            // Execute fill
+            let fill_params = order_book::instructions::fill::FillParams {
+                amount_out_to_fill: amount_out_to_fill as u64,
+                origin_recipient: solver.pubkey().to_bytes(),
+            };
+
+            let ix = test.create_fill_native_order_ix(
+                &solver.pubkey(),
+                order_id,
+                &fill_params
+            )?;
+
+            test.ctx.execute_instruction(ix, &[&solver])?
+                .assert_success();
+            test.ctx.svm.expire_blockhash();
+
+            // Update cumulative amounts
+            cumulative_amount_out_filled += amount_out_to_fill as u64;
+            cumulative_amount_in_released += expected_amount_in_for_this_fill as u64;
+
+            // Get balances after this fill
+            let alice_balance_after = test.get_token_balance(&alice_token_out_ata)?;
+            let solver_token_out_balance_after = test.get_token_balance(&solver_token_out_ata)?;
+            let solver_token_in_balance_after = test.get_token_balance(&solver_token_in_ata)?;
+            let order_balance_after = test.get_token_balance(&order_token_in_ata)?;
+
+            // Verify token transfers for this fill
+            assert_eq!(
+                alice_balance_after - alice_balance_before,
+                amount_out_to_fill as u64,
+                "Fill {}: Recipient should receive amount_out_to_fill", i + 1
+            );
+            assert_eq!(
+                solver_token_out_balance_before - solver_token_out_balance_after,
+                amount_out_to_fill as u64,
+                "Fill {}: Solver should pay amount_out_to_fill", i + 1
+            );
+            assert_eq!(
+                solver_token_in_balance_after - solver_token_in_balance_before,
+                expected_amount_in_for_this_fill as u64,
+                "Fill {}: Solver should receive proportional amount_in", i + 1
+            );
+            assert_eq!(
+                order_balance_before - order_balance_after,
+                expected_amount_in_for_this_fill as u64,
+                "Fill {}: Order should release proportional amount_in", i + 1
+            );
+
+            // Verify order state after this fill
+            let (_, order_data) = test.get_native_order_account(&order_id)?;
+
+            if is_final_fill {
+                assert_eq!(
+                    order_data.data.status,
+                    order_book::state::OrderStatus::Completed,
+                    "Fill {}: Order should be Completed after final fill", i + 1
+                );
+            } else {
+                assert_eq!(
+                    order_data.data.status,
+                    order_book::state::OrderStatus::Created,
+                    "Fill {}: Order should remain Created", i + 1
+                );
+            }
+
+            assert_eq!(
+                order_data.data.amount_out_filled,
+                cumulative_amount_out_filled as u128,
+                "Fill {}: Cumulative amount_out_filled should match", i + 1
+            );
+            assert_eq!(
+                order_data.data.amount_in_released,
+                cumulative_amount_in_released as u128,
+                "Fill {}: Cumulative amount_in_released should match", i + 1
+            );
+        }
+
+        // Final verification: order should be fully filled
+        let (_, order_data) = test.get_native_order_account(&order_id)?;
+        assert_eq!(
+            order_data.data.status,
+            order_book::state::OrderStatus::Completed,
+            "Order should be Completed"
+        );
+        assert_eq!(
+            order_data.data.amount_out_filled,
+            order_params.amount_out as u128,
+            "Total amount_out_filled should equal order amount_out"
+        );
+        assert_eq!(
+            order_data.data.amount_in_released,
+            order_params.amount_in as u128,
+            "Total amount_in_released should equal order amount_in"
+        );
 
         Ok(())
     }
