@@ -451,6 +451,56 @@ impl OrderBookTest {
     }
 
     // Helpers to construct instructions
+    fn create_initialize_ix(
+        &self,
+        admin: &Pubkey,
+        chain_id: u32,
+    ) -> Result<Instruction, Box<dyn Error>> {
+        let global_account = self.ctx.svm.get_pda(
+            &[order_book::state::GLOBAL_SEED],
+            &order_book::ID,
+        );
+        let messenger_authority = self.ctx.svm.get_pda(
+            &[messenger::constants::AUTHORITY_SEED],
+            &messenger::ID,
+        );
+
+        let ix = self.ctx.program()
+            .accounts(
+                order_book::accounts::Initialize {
+                    admin: *admin,
+                    global_account,
+                    messenger_authority,
+                    system_program: anchor_lang::solana_program::system_program::ID,
+                }
+            )
+            .args(
+                order_book::instruction::Initialize {
+                    chain_id,
+                }
+            )
+            .instruction()?;
+
+        Ok(ix)
+    }
+
+    fn create_initialize_ix_with_custom_accounts(
+        &self,
+        accounts: order_book::accounts::Initialize,
+        chain_id: u32,
+    ) -> Result<Instruction, Box<dyn Error>> {
+        let ix = self.ctx.program()
+            .accounts(accounts)
+            .args(
+                order_book::instruction::Initialize {
+                    chain_id,
+                }
+            )
+            .instruction()?;
+
+        Ok(ix)
+    }
+
     fn create_open_order_ix(
         &self,
         sender: &Pubkey,
