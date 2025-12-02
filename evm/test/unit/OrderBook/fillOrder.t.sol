@@ -968,4 +968,39 @@ contract FillOrderTest is OrderBookTestBase {
     ) public givenTokenInDecimals(18) givenTokenOutDecimals(18) {
         _testFuzz_multiPartFill_success(fillAmount);
     }
+
+    function test_onFillDeadline_success() public {
+        // Create a local order
+        params.destChainId = CHAIN_ID;
+        bytes32 orderId = _placeOrder(users["alice"], params);
+        IOrderBook.Order memory order = orderBook.getOrder(orderId);
+
+        // Fast forward to fill deadline
+        vm.warp(order.fillDeadline);
+
+        vm.prank(users["solver"]);
+        orderBook.fillOrder(
+            orderId,
+            IOrderBook.OrderData({
+                version: order.version,
+                originChainId: CHAIN_ID,
+                sender: order.sender.toBytes32(),
+                nonce: order.nonce,
+                destChainId: order.destChainId,
+                fillDeadline: order.fillDeadline,
+                amountIn: order.amountIn,
+                amountOut: order.amountOut,
+                tokenIn: order.tokenIn.toBytes32(),
+                tokenOut: order.tokenOut,
+                recipient: order.recipient,
+                solver: order.solver
+            }),
+            IOrderBook.FillParams({ amountOutToFill: order.amountOut, originRecipient: params.solver })
+        );
+
+
+        // Check order status
+        IOrderBook.Order memory updatedOrder = orderBook.getOrder(orderId);
+        assertEq(uint8(updatedOrder.status), uint8(IOrderBook.OrderStatus.Completed), "order should be completed");
+    }
 }
