@@ -23,15 +23,15 @@ contract FinalityBufferRaceConditionTest is OrderBookTestBase {
         orderBook.setDestinationConfig(DEST_CHAIN_ID, true, INITIAL_FINALITY_BUFFER);
     }
 
-    /// @notice Demonstrates solver loss when admin decreases finalityBuffer mid-flight
+    /// @notice Demonstrates solver doesn't lose funds when admin decreases finalityBuffer mid-flight
     /// @dev Timeline:
     ///      T=0: Order created, user requests cancel (cancelRequestedAt = 0)
     ///      T=0: Solver fills on destination, reportFill in flight (~30min latency)
     ///      T=15min: Admin reduces finalityBuffer from 1hr to 10min
-    ///      T=25min: User claims refund (cancelRequestedAt + 10min < now)
-    ///      T=30min: Solver's reportFill arrives but reverts - order already Refunded
-    ///      Result: Solver paid recipient on dest chain but can't claim tokenIn on origin
-    function test_reducedFinalityBuffer_solverLosesFunds() public {
+    ///      T=25min: User tries to claim refund, but fails (cancelRequestedAt + 10min < now)
+    ///      T=30min: Solver's reportFill arrives and succeeds
+    ///      Result: Solver is made whole even though the finality buffer was decreased
+    function test_reducedFinalityBuffer_solverDoesntLoseFunds() public {
         // Setup: Cross-chain order
         params.destChainId = DEST_CHAIN_ID;
 
@@ -59,23 +59,16 @@ contract FinalityBufferRaceConditionTest is OrderBookTestBase {
         vm.warp(cancelRequestedAt + REDUCED_FINALITY_BUFFER + 1);
 
         // Alice front-runs the incoming reportFill by claiming refund
-        uint256 aliceBalanceBefore = tokenIn.balanceOf(users["alice"]);
+        vm.prank(users["alice"]);
+        vm.expectRevert(IOrderBook.FinalityPending.selector);
         orderBook.claimRefund(orderId);
-        uint256 aliceBalanceAfter = tokenIn.balanceOf(users["alice"]);
-
-        // Alice got her tokens back
-        assertEq(aliceBalanceAfter - aliceBalanceBefore, params.amountIn, "alice got refund");
-
-        // Order is now Completed (refund sets status to Completed)
-        order = orderBook.getOrder(orderId);
-        assertEq(uint8(order.status), uint8(IOrderBook.OrderStatus.Completed));
 
         // T=30min: Solver's reportFill finally arrives
         vm.warp(block.timestamp + 5 minutes);
 
-        // reportFill reverts because order is no longer Created or CancelRequested
+        // reportFill succeeds
+        uint256 solverBalanceBefore = tokenIn.balanceOf(users["solver"]);
         vm.prank(address(messenger));
-        vm.expectRevert(IOrderBook.InvalidOrderStatus.selector);
         orderBook.reportFill(
             IOrderBook.FillReport({
                 orderId: orderId,
@@ -84,9 +77,13 @@ contract FinalityBufferRaceConditionTest is OrderBookTestBase {
                 originRecipient: users["solver"].toBytes32()
             })
         );
+        uint256 solverBalanceAfter = tokenIn.balanceOf(users["solver"]);
 
-        // Result: Solver already paid Alice on destination chain (amountOut)
-        // but cannot claim their tokenIn on origin chain
-        // Solver loses amountOut worth of funds
+        // Solver made whole
+        assertEq(solverBalanceAfter - solverBalanceBefore, params.amountIn);
+
+        // Verify order status is Filled
+        order = orderBook.getOrder(orderId);
+        assertEq(uint8(order.status), uint8(IOrderBook.OrderStatus.Completed));
     }
 }

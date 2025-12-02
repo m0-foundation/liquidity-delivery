@@ -5,6 +5,7 @@ import { TypeConverter } from "../../../../lib/common/src/libs/TypeConverter.sol
 
 import { OrderBookTestBase } from "../OrderBookTestBase.t.sol";
 import { IOrderBook } from "../../../../src/interfaces/IOrderBook.sol";
+import { SafeERC20 } from "../../../../src/libs/SafeERC20.sol";
 
 /// @notice Tests demonstrating originRecipient validation behavior
 /// @dev When solver sets originRecipient to address(orderBook), safeTransferExact catches it
@@ -28,9 +29,9 @@ contract InvalidOriginRecipientTest is OrderBookTestBase {
         vm.startPrank(users["solver"]);
         tokenOut.approve(address(orderBook), params.amountOut);
 
-        // Reverts with "STE" (SafeTransferExact) - balance didn't increase
+        // Reverts with SafeERC20 error - balance didn't increase
         // An explicit InvalidRecipient check would be clearer and fail earlier
-        vm.expectRevert(bytes("STE"));
+        vm.expectRevert(abi.encodeWithSelector(SafeERC20.SafeERC20FeeOnTransfer.selector, address(tokenIn), address(orderBook), params.amountIn, 0));
         orderBook.fillOrder(
             orderId,
             IOrderBook.OrderData({

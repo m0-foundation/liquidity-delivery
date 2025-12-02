@@ -74,9 +74,9 @@ contract FeeOnTransferTest is Test {
         });
     }
 
-    /// @notice Test that reportFill reverts when fee is enabled after order creation
-    /// @dev Order created with 0% fee, then fee increased to 1%, causing transfer to fail
-    function test_feeEnabledAfterOrderCreation_reportFillReverts() public {
+    /// @notice Test that reportFill NOT revert when fee is enabled after order creation
+    /// @dev Order created with 0% fee, then fee increased to 1%, reportFill succeeds bc feeOnTransfer ignored. Solver loses small amount, but not all.
+    function test_feeEnabledAfterOrderCreation_reportFillSuccess() public {
         // 1. Create order with 0% fee (default)
         vm.startPrank(alice);
         feeToken.approve(address(orderBook), AMOUNT_IN);
@@ -93,7 +93,6 @@ contract FeeOnTransferTest is Test {
         // 3. Attempt reportFill - should revert because safeTransferExact will fail
         // The OrderBook expects to transfer exactly AMOUNT_IN, but fee will reduce actual amount
         vm.prank(address(messenger));
-        vm.expectRevert(); // Will revert due to transfer amount mismatch
         orderBook.reportFill(
             IOrderBook.FillReport({
                 orderId: orderId,
@@ -106,8 +105,8 @@ contract FeeOnTransferTest is Test {
 
     /// @notice Test that claimRefund does NOT revert when fee is enabled - user loses funds
     /// @dev This documents an inconsistency: reportFill uses safeTransferExact (reverts),
-    ///      but _claimRefund uses safeTransfer (does not revert, user loses funds to fee)
-    function test_feeEnabledAfterOrderCreation_claimRefundLosesFunds() public {
+    ///      but _claimRefund uses safeTransfer (does not revert, user loses somes funds to fee, but not all)
+    function test_feeEnabledAfterOrderCreation_claimRefundSuccess() public {
         // 1. Create order with 0% fee (default)
         vm.startPrank(alice);
         feeToken.approve(address(orderBook), AMOUNT_IN);

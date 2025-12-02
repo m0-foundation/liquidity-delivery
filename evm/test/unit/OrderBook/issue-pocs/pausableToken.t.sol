@@ -101,9 +101,8 @@ contract PausableTokenTest is Test {
         pausableToken.pause();
 
         // 4. reportFill arrives but reverts because token is paused
-        //    (error is wrapped by safeTransfer as "ST")
         vm.prank(address(messenger));
-        vm.expectRevert(bytes("ST"));
+        vm.expectRevert(abi.encodeWithSelector(MockPausableToken.EnforcedPause.selector));
         orderBook.reportFill(
             IOrderBook.FillReport({
                 orderId: orderId,
