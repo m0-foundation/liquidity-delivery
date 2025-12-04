@@ -16,7 +16,7 @@ pub struct RequestCancelOrder<'info> {
         bump = order.bump,
         constraint = order.data.sender == sender.key() @ OrderBookError::NotAuthorized,
     )]
-    pub order: Account<'info, Order<NativeOrder>>,
+    pub order: Account<'info, Order::<NativeOrder>>,
 }
 
 impl RequestCancelOrder<'_> {

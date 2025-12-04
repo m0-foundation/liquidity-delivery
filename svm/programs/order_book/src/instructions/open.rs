@@ -89,7 +89,7 @@ pub struct OpenOrder<'info> {
             ],
             bump
         )]
-    pub order: Account<'info, Order<NativeOrder>>,
+    pub order: Account<'info, Order::<NativeOrder>>,
 
     #[account(
         init_if_needed,

@@ -35,7 +35,7 @@ pub struct ClaimRefund<'info> {
         bump = order.bump,
         constraint = order.data.sender == sender.key() @ OrderBookError::NotAuthorized,
     )]
-    pub order: Account<'info, Order<NativeOrder>>,
+    pub order: Account<'info, Order::<NativeOrder>>,
 
     #[account(
         address = order.data.token_in @ OrderBookError::InvalidTokenMint,
