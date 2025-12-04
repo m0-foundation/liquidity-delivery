@@ -37,6 +37,32 @@ pub mod order_book {
         ConfigureDestination::handler(ctx, dest_chain_id, is_supported, finality_buffer)
     }
 
+    pub fn set_messenger_authority(
+        ctx: Context<AdminInstruction>,
+        messenger_authority: Pubkey,
+    ) -> Result<()> {
+        AdminInstruction::set_messenger_authority(ctx, messenger_authority)
+    }
+
+    pub fn set_new_admin(
+        ctx: Context<AdminInstruction>,
+        new_admin: Pubkey,
+    ) -> Result<()> {
+        AdminInstruction::set_new_admin(ctx, new_admin)
+    }
+
+    pub fn clear_new_admin(
+        ctx: Context<AdminInstruction>,
+    ) -> Result<()> {
+        AdminInstruction::clear_new_admin(ctx)
+    }
+
+    pub fn accept_admin_role(
+        ctx: Context<AcceptAdminRole>,
+    ) -> Result<()> {
+        AcceptAdminRole::handler(ctx)
+    }
+
     // User actions
 
     pub fn open_order(ctx: Context<OpenOrder>, params: OrderParams) -> Result<()> {

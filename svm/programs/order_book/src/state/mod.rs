@@ -20,6 +20,7 @@ pub const GLOBAL_SEED: &[u8] = b"global";
 #[derive(InitSpace)]
 pub struct OrderBookGlobal {
     pub admin: Pubkey,
+    pub new_admin: Option<Pubkey>,
     pub chain_id: u32,
     pub messenger_authority: Pubkey,
     pub bump: u8,
