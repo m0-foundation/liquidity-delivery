@@ -10,6 +10,8 @@ pub use constants::*;
 pub use instructions::*;
 pub use state::*;
 
+declare_program!(portal);
+
 #[cfg(not(feature = "no-entrypoint"))]
 solana_security_txt::security_txt! {
     name: "M0 OrderBook Program",
@@ -22,9 +24,6 @@ solana_security_txt::security_txt! {
 }
 
 declare_id!("MzLoYnJ6sF6eeejs4vV95TNmXqS3W4cAtLGKkjT4ZrK");
-
-declare_program!(portal);
-
 
 #[program]
 pub mod order_book {
