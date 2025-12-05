@@ -10,9 +10,21 @@ pub use constants::*;
 pub use instructions::*;
 pub use state::*;
 
+#[cfg(not(feature = "no-entrypoint"))]
+solana_security_txt::security_txt! {
+    name: "M0 OrderBook Program",
+    project_url: "https://m0.org/",
+    contacts: "email:security@m0.xyz",
+    policy: "https://github.com/m0-foundation/liquidity-delivery/blob/main/SECURITY.md", // TODO
+    preferred_languages: "en",
+    source_code: "https://github.com/m0-foundation/liquidity-delivery/tree/main/programs/order_book",
+    auditors: "" // TODO
+}
+
 declare_id!("MzLoYnJ6sF6eeejs4vV95TNmXqS3W4cAtLGKkjT4ZrK");
 
 declare_program!(portal);
+
 
 #[program]
 pub mod order_book {
