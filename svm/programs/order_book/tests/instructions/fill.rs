@@ -1,4 +1,4 @@
-use super::super::{messenger, OrderBookTest, CHAIN_ID, DEST_CHAIN_ID};
+use super::super::{portal, OrderBookTest, CHAIN_ID, DEST_CHAIN_ID};
 use anchor_lang::prelude::Clock;
 use anchor_litesvm::{Signer, TestHelpers};
 use anchor_spl::associated_token::get_associated_token_address;
@@ -857,7 +857,19 @@ mod local_orders {
                 token_out_program: anchor_spl::token::ID,
                 associated_token_program: anchor_spl::associated_token::ID,
                 order: native_order_account,
-                messenger_program: messenger::ID,
+                portal_program: portal::ID, // following accounts not checked by the mock portal
+                portal_global: test.ctx.svm.get_pda(
+                    &[b"global"],
+                    &portal::ID,
+                ),
+                portal_authority: test.ctx.svm.get_pda(
+                    &[b"authority"],
+                    &portal::ID,
+                ),
+                bridge_adapter: test.ctx.svm.get_pda(
+                    &[b"bridge_adapter"],
+                    &portal::ID,
+                ),
                 system_program: anchor_lang::system_program::ID,
             })
             .args(order_book::instruction::FillForeignOrder {
@@ -1089,7 +1101,19 @@ mod xchain_orders {
                 token_out_program: anchor_spl::token::ID,
                 associated_token_program: anchor_spl::associated_token::ID,
                 order: order_account,
-                messenger_program: messenger::ID,
+                portal_program: portal::ID, // following accounts not checked by the mock portal
+                portal_global: test.ctx.svm.get_pda(
+                    &[b"global"],
+                    &portal::ID,
+                ),
+                portal_authority: test.ctx.svm.get_pda(
+                    &[b"authority"],
+                    &portal::ID,
+                ),
+                bridge_adapter: test.ctx.svm.get_pda(
+                    &[b"bridge_adapter"],
+                    &portal::ID,
+                ),
                 system_program: anchor_lang::solana_program::system_program::ID,
             })
             .args(order_book::instruction::FillForeignOrder {

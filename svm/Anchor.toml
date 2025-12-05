@@ -6,7 +6,7 @@ resolution = true
 skip-lint = false
 
 [programs.localnet]
-messenger = "8KytuBaFrs7wv2oprMgrkscrogPVi1baqTewfgUZoaHr"
+mock_portal = "MzBrgc8yXBj4P16GTkcSyDZkEQZB9qDqf3fh9bByJce"
 order_book = "4Qgxc6VkBGaAQAikirnkApYNyy1W6asQgMHZxKgRcSL8"
 
 [registry]

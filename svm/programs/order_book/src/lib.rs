@@ -12,7 +12,7 @@ pub use state::*;
 
 declare_id!("4Qgxc6VkBGaAQAikirnkApYNyy1W6asQgMHZxKgRcSL8");
 
-declare_program!(messenger);
+declare_program!(portal);
 
 #[program]
 pub mod order_book {
@@ -91,8 +91,8 @@ pub mod order_book {
         FillNativeOrder::handler(ctx, order_id, order_data, fill_params)
     }
 
-    pub fn fill_foreign_order(
-        ctx: Context<FillForeignOrder>,
+    pub fn fill_foreign_order<'info>(
+        ctx: Context<'_, '_, 'info, 'info, FillForeignOrder<'info>>,
         order_id: [u8; 32],
         order_data: OrderData,
         fill_params: FillParams,

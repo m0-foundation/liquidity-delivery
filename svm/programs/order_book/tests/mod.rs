@@ -11,10 +11,10 @@ use anchor_spl::{
     associated_token::get_associated_token_address,
     token::TokenAccount,
 };
-use order_book::{OrderData, ORDER_SEED_PREFIX};
+use order_book::{GLOBAL_SEED, ORDER_SEED_PREFIX, OrderData};
 use std::{collections::HashMap, error::Error};
 
-declare_program!(messenger);
+declare_program!(portal);
 
 const LAMPORTS_PER_SOL: u64 = 1_000_000_000;
 const INITIAL_FUNDS: u64 = 10 * LAMPORTS_PER_SOL;
@@ -39,8 +39,8 @@ impl OrderBookTest {
                 include_bytes!("../../../target/deploy/order_book.so"),
             ),
             (
-                messenger::ID,
-                include_bytes!("../../../target/deploy/messenger.so"),
+                portal::ID,
+                include_bytes!("../../../target/deploy/mock_portal.so"),
             ),
         ]);
 
@@ -464,7 +464,19 @@ impl OrderBookTest {
             associated_token_program: anchor_spl::associated_token::ID,
             system_program: anchor_lang::solana_program::system_program::ID,
             order: order_account,
-            messenger_program: messenger::ID,
+            portal_program: portal::ID, // the following accounts are not checked by the mock
+            portal_global: self.ctx.svm.get_pda(
+                &[GLOBAL_SEED],
+                &portal::ID,
+            ),
+            portal_authority: self.ctx.svm.get_pda(
+                &[b"authority"],
+                &portal::ID,
+            ),
+            bridge_adapter: self.ctx.svm.get_pda(
+                &[b"bridge_adapter"],
+                &portal::ID,
+            )
         })
     }
 

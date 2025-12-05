@@ -1,11 +1,10 @@
 use crate::{
-    constants::{ANCHOR_DISCRIMINATOR_SIZE, VERSION},
+    constants::{ANCHOR_DISCRIMINATOR_SIZE, VERSION}, 
     error::OrderBookError,
     state::{
-        compute_order_id, ForeignOrder, NativeOrder, Order, OrderBookGlobal, OrderData,
-        OrderStatus, OrderType, GLOBAL_SEED, ORDER_SEED_PREFIX,
-    },
-    utils::{transfer_tokens, transfer_tokens_from_program},
+        ForeignOrder, GLOBAL_SEED, NativeOrder, ORDER_SEED_PREFIX, Order, 
+        OrderBookGlobal, OrderData, OrderStatus, OrderType, compute_order_id
+    }, utils::{transfer_tokens, transfer_tokens_from_program}
 };
 use anchor_lang::prelude::*;
 use anchor_spl::{
@@ -13,11 +12,10 @@ use anchor_spl::{
     token_interface::{Mint, TokenAccount, TokenInterface},
 };
 
-declare_program!(messenger);
-use messenger::{
+declare_program!(portal);
+use portal::{
     cpi::{accounts::SendFillReport, send_fill_report},
-    program::Messenger,
-    types::FillReport,
+    program::Portal,
 };
 
 // Handler Inputs
@@ -246,11 +244,11 @@ impl FillNativeOrder<'_> {
 #[derive(Accounts)]
 #[instruction(order_id: [u8; 32], order_data: OrderData)]
 pub struct FillForeignOrder<'info> {
-    // pub common: FillCommon<'info>,
     #[account(mut)]
     pub solver: Signer<'info>,
 
     #[account(
+        mut,
         seeds = [GLOBAL_SEED],
         bump = global_account.bump,
         constraint = order_data.dest_chain_id == global_account.chain_id @ OrderBookError::InvalidDestChainId,
@@ -300,10 +298,23 @@ pub struct FillForeignOrder<'info> {
     )]
     pub order: Account<'info, Order::<ForeignOrder>>,
 
-    pub messenger_program: Program<'info, Messenger>,
+    pub portal_program: Program<'info, Portal>,
+
+    /// CHECK: Portal global account
+    /// This is validated in the portal CPI
+    #[account(mut)]
+    pub portal_global: UncheckedAccount<'info>,
+
+    /// CHECK: Portal authority PDA
+    /// This is validated in the portal CPI
+    pub portal_authority: UncheckedAccount<'info>,
+
+    /// CHECK: Bridge adapter program
+    /// This is validated in the portal CPI
+    pub bridge_adapter: UncheckedAccount<'info>,
 }
 
-impl FillForeignOrder<'_> {
+impl<'info> FillForeignOrder<'info> {
     fn validate(
         &self,
         order_id: &[u8; 32],
@@ -324,7 +335,7 @@ impl FillForeignOrder<'_> {
 
     #[access_control(ctx.accounts.validate(&order_id, &order_data, &fill_params))]
     pub fn handler(
-        ctx: Context<Self>,
+        ctx: Context<'_, '_, 'info, 'info, Self>,
         order_id: [u8; 32],
         order_data: OrderData,
         fill_params: FillParams,
@@ -391,23 +402,27 @@ impl FillForeignOrder<'_> {
             &ctx.accounts.token_out_program,
         )?;
 
-        // Send a fill report message to the origin chain via the messenger program
+        // Send a fill report message to the origin chain via the portal program
         send_fill_report(
             CpiContext::new_with_signer(
-                ctx.accounts.messenger_program.to_account_info(),
+                ctx.accounts.portal_program.to_account_info(),
                 SendFillReport {
-                    signer: ctx.accounts.global_account.to_account_info(),
+                    sender: ctx.accounts.solver.to_account_info(),
+                    order_book_global: ctx.accounts.global_account.to_account_info(),
+                    portal_global: ctx.accounts.portal_global.to_account_info(),
+                    portal_authority: ctx.accounts.portal_authority.to_account_info(),
+                    bridge_adapter: ctx.accounts.bridge_adapter.to_account_info(),
+                    system_program: ctx.accounts.system_program.to_account_info(),
                 },
                 &[&[GLOBAL_SEED, &[ctx.accounts.global_account.bump]]],
-            ),
-            order_data.origin_chain_id,
-            FillReport {
-                order_id,
-                amount_in_to_release: amount_in_to_release as u128,
-                amount_out_filled: amount_out_to_fill as u128,
-                origin_recipient: fill_params.origin_recipient,
-                token_in: order_data.token_in,
-            },
+            )
+            .with_remaining_accounts(ctx.remaining_accounts.to_vec()),
+            order_id, // order_id: [u8; 32],
+            order_data.token_in, // token_in: [u8; 32],
+            amount_in_to_release as u128, // amount_in_to_release: u128,
+            amount_out_to_fill as u128, // amount_out_filled: u128,
+            fill_params.origin_recipient, // origin_recipient: [u8; 32],
+            order_data.origin_chain_id, // origin_chain_id: u32,
         )?;
 
         // Emit a fill event
