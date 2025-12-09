@@ -1,33 +1,28 @@
 mod mock_api;
-mod tracing_capture;
 
 use alloy::{
     hex,
     network::TransactionBuilder,
     node_bindings::{Anvil, AnvilInstance},
     primitives::{Address, FixedBytes, U256},
-    providers::{
-        fillers::{
-            BlobGasFiller, ChainIdFiller, FillProvider, GasFiller, JoinFill, NonceFiller,
-            WalletFiller,
-        },
-        Identity, Provider, ProviderBuilder, RootProvider,
-    },
+    providers::{Provider, ProviderBuilder},
     rpc::types::TransactionRequest,
     signers::local::PrivateKeySigner,
     sol,
 };
 use anchor_client::solana_sdk::signature::Keypair;
 use solver::{
-    config::{Environment, Signers},
+    config::Signers,
     utils::{chain_from_id, decode_evm_address},
     Config,
 };
-use std::{process::Command, sync::Arc, time::Duration};
+use std::{fs::File, process::Command, sync::Arc, time::Duration};
 use tokio::{
     sync::{broadcast, Mutex, OnceCell},
     time::sleep,
 };
+use tracing_appender::rolling::{RollingFileAppender, Rotation};
+use tracing_subscriber::{filter, layer::SubscriberExt, util::SubscriberInitExt, Layer};
 
 use crate::{mock_api::Asset, IOrderBook::OrderParams};
 
@@ -51,7 +46,6 @@ struct TestSuite {
     evm_signer: Mutex<PrivateKeySigner>,
     _svm_signer: Arc<Keypair>,
     _shutdown_tx: broadcast::Sender<()>,
-    log_capture: tracing_capture::CaptureLayer,
 }
 
 struct ChainInstance {
@@ -63,9 +57,19 @@ struct ChainInstance {
 
 impl TestSuite {
     async fn init() -> Self {
-        let log_capture = tracing_capture::get_capture();
-        let mut chains = Vec::new();
+        let file = File::create("tests.log").expect("Failed to create log file");
+        let (non_blocking_appender, _guard) =
+            tracing_appender::non_blocking::NonBlocking::new(file);
 
+        // Create a subscriber that formats output for the file
+        let file_subscriber = tracing_subscriber::fmt::layer::<tracing_subscriber::Registry>()
+            .with_writer(non_blocking_appender)
+            .with_ansi(false)
+            .with_filter(filter::LevelFilter::from_level(tracing::Level::INFO));
+
+        tracing_subscriber::registry().with(file_subscriber).init();
+
+        let mut chains = Vec::new();
         let evm_signer = PrivateKeySigner::from_bytes(&FixedBytes::from([1u8; 32])).unwrap();
         let svm_signer = Arc::new(Keypair::new());
 
@@ -234,24 +238,27 @@ impl TestSuite {
             .expect("Failed to start solver");
 
         // Let the solver boot up
-        sleep(Duration::from_millis(100)).await;
+        sleep(Duration::from_millis(5000)).await;
 
         Self {
             chains,
             evm_signer: Mutex::new(evm_signer),
             _svm_signer: svm_signer,
             _shutdown_tx: shutdown_tx,
-            log_capture,
         }
     }
 
-    async fn wait_for_log(&self, substring: &str) {
+    async fn check_for_log(&self, substring: &str) {
         let timeout = Duration::from_secs(5);
         let poll_interval = Duration::from_millis(50);
         let start = tokio::time::Instant::now();
 
         while start.elapsed() < timeout {
-            if self.log_capture.contains(substring) {
+            if tokio::fs::read_to_string("tests.log")
+                .await
+                .expect("Failed to read test log file")
+                .contains(substring)
+            {
                 return;
             }
             sleep(poll_interval).await;
@@ -315,14 +322,14 @@ async fn get_tests_suite() -> &'static TestSuite {
 async fn test_inventory_manager_loads_balances() {
     let suite = get_tests_suite().await;
 
-    assert!(suite.log_capture.contains("USDC (Ethereum): 100"));
-    assert!(suite.log_capture.contains("USDT (Ethereum): 100"));
-    assert!(suite.log_capture.contains("USDS (Ethereum): 100"));
-    assert!(suite.log_capture.contains("USDC (Base): 100"));
-    assert!(suite.log_capture.contains("USDT (Base): 100"));
-    assert!(suite.log_capture.contains("USDS (Base): 100"));
-    assert!(suite.log_capture.contains("ETH (Ethereum): 0.99"));
-    assert!(suite.log_capture.contains("ETH (Base): 0.99"));
+    suite.check_for_log("USDC (Ethereum): 100").await;
+    suite.check_for_log("USDT (Ethereum): 100").await;
+    suite.check_for_log("USDS (Ethereum): 100").await;
+    suite.check_for_log("USDC (Base): 100").await;
+    suite.check_for_log("USDT (Base): 100").await;
+    suite.check_for_log("USDS (Base): 100").await;
+    suite.check_for_log("ETH (Ethereum): 0.99").await;
+    suite.check_for_log("ETH (Base): 0.99").await;
 }
 
 #[tokio::test]
@@ -342,8 +349,8 @@ async fn test_order_rejected() {
         )
         .await;
 
-    suite.wait_for_log("event=\"OrderRejected\" order_id=c01f9cabfe9f4ca5e44d7deb2afb7eef3e5389ec9efa10c149b85ccbcf01ceef").await;
-    suite.wait_for_log("reason=Asset not supported").await;
+    suite.check_for_log("event=\"OrderRejected\" order_id=c01f9cabfe9f4ca5e44d7deb2afb7eef3e5389ec9efa10c149b85ccbcf01ceef").await;
+    suite.check_for_log("reason=Asset not supported").await;
 }
 
 #[tokio::test]
@@ -362,8 +369,8 @@ async fn test_order_processed_chain_a() {
         )
         .await;
 
-    suite.wait_for_log("event=\"OrderCreated\" order_id=22c461dbb898e0ffad3db065928de717796c1d2b773ab58ecb91b4bdc82d6aec").await;
-    suite.wait_for_log("event=\"HoldSuccessfulEvent\" order_id=22c461dbb898e0ffad3db065928de717796c1d2b773ab58ecb91b4bdc82d6aec").await;
+    suite.check_for_log("event=\"OrderCreated\" order_id=22c461dbb898e0ffad3db065928de717796c1d2b773ab58ecb91b4bdc82d6aec").await;
+    suite.check_for_log("event=\"HoldSuccessfulEvent\" order_id=22c461dbb898e0ffad3db065928de717796c1d2b773ab58ecb91b4bdc82d6aec").await;
 }
 
 #[tokio::test]
@@ -382,6 +389,6 @@ async fn test_order_processed_chain_b() {
         )
         .await;
 
-    suite.wait_for_log("event=\"OrderCreated\" order_id=b5a03f77fb3f31d440d42c19eb2fd109774b3f07169ebb4faac81f72e521fe00").await;
-    suite.wait_for_log("event=\"HoldSuccessfulEvent\" order_id=b5a03f77fb3f31d440d42c19eb2fd109774b3f07169ebb4faac81f72e521fe00").await;
+    suite.check_for_log("event=\"OrderCreated\" order_id=b5a03f77fb3f31d440d42c19eb2fd109774b3f07169ebb4faac81f72e521fe00").await;
+    suite.check_for_log("event=\"HoldSuccessfulEvent\" order_id=b5a03f77fb3f31d440d42c19eb2fd109774b3f07169ebb4faac81f72e521fe00").await;
 }

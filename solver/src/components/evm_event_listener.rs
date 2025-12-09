@@ -149,7 +149,6 @@ impl EvmEventListener {
                         log.log_index.unwrap() as u64,
                     ));
 
-                    tracing::debug!("Received log on chain {} via websocket", chain_id);
                     match Self::process_log(chain_id, &log) {
                         Ok(Some(event)) => {
                             if let Err(e) = event_bus.publish(event).await {
