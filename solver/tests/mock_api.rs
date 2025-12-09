@@ -1,22 +1,14 @@
-pub struct AssetConfig {
-    pub address: String,
-    pub chain: String,
+use alloy::primitives::Address;
+use solver::utils::chain_from_id;
+
+#[derive(Clone, Debug)]
+pub struct Asset {
+    pub address: Address,
+    pub chain_id: u32,
     pub symbol: String,
 }
 
-impl AssetConfig {
-    pub fn new(
-        address: impl Into<String>,
-        chain: impl Into<String>,
-        symbol: impl Into<String>,
-    ) -> Self {
-        Self {
-            address: address.into(),
-            chain: chain.into(),
-            symbol: symbol.into(),
-        }
-    }
-
+impl Asset {
     fn to_json(&self) -> String {
         format!(
             r#"{{
@@ -29,16 +21,18 @@ impl AssetConfig {
                 "m0Extension": false,
                 "runtime": "evm"
             }}"#,
-            self.chain, self.address, self.symbol, self.symbol
+            chain_from_id(self.chain_id),
+            self.address,
+            self.symbol,
+            self.symbol
         )
     }
 }
 
-pub async fn mock_api_with_assets(additional_assets: Vec<AssetConfig>) -> mockito::ServerGuard {
+pub async fn mock_api_with_assets(additional_assets: Vec<Asset>) -> mockito::ServerGuard {
     let mut server = mockito::Server::new_async().await;
 
-    let mut assets = vec![
-        r#"{
+    let mut assets = vec![r#"{
             "chain": "Ethereum",
             "address": "0x437cc33344a0B27A429f795ff6B469C72698B291",
             "symbol": "wM",
@@ -48,19 +42,7 @@ pub async fn mock_api_with_assets(additional_assets: Vec<AssetConfig>) -> mockit
             "m0Extension": true,
             "runtime": "evm"
         }"#
-        .to_string(),
-        r#"{
-            "chain": "Solana",
-            "address": "mzeroXDoBpRVhnEXBra27qzAMdxgpWVY3DzQW7xMVJp",
-            "symbol": "wM", 
-            "icon": "",
-            "name": "Wrapped $M",
-            "decimals": 6,
-            "m0Extension": true,
-            "runtime": "svm"
-        }"#
-        .to_string(),
-    ];
+    .to_string()];
 
     assets.extend(additional_assets.into_iter().map(|a| a.to_json()));
 
