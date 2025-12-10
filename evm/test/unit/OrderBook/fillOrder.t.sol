@@ -2,6 +2,7 @@
 pragma solidity 0.8.26;
 
 import { TypeConverter } from "../../../lib/common/src/libs/TypeConverter.sol";
+import { console } from "../../../lib/forge-std/src/console.sol";
 
 import { OrderBookTestBase } from "./OrderBookTestBase.t.sol";
 import { IOrderBook } from "../../../src/interfaces/IOrderBook.sol";
@@ -25,6 +26,8 @@ contract FillOrderTest is OrderBookTestBase {
     // [X] given the fill amount is zero
     //   [X] it reverts with a FillAmountZero error
     // [X] given the order originated on the current chain (i.e. it is local)
+    //   [ ] given the order status is cancelled
+    //     [ ] it reverts with an InvalidOrderStatus error
     //   [X] given both tokens have 6 decimals
     //     [X] given the fill amount is equal to the amount out remaining to fill
     //       [X] it updates the order status to Completed
@@ -43,12 +46,12 @@ contract FillOrderTest is OrderBookTestBase {
     //       [X] it transfers the fill amount out from the caller to the recipient
     //       [X] it transfers a pro-rata amount in to the caller
     //       [X] it emits a Fill event
-    //   [ ] given token in has a smaller number of decimals than token out (6 vs. 18)
-    //     [ ] same cases as above
-    //   [ ] given token in has a larger number of decimals than token out (18 vs. 6)
-    //     [ ] same cases as above
-    //   [ ] given both tokens have 18 decimals
-    //     [ ] same cases as above
+    //   [X] given token in has a smaller number of decimals than token out (6 vs. 18)
+    //     [X] same cases as above
+    //   [X] given token in has a larger number of decimals than token out (18 vs. 6)
+    //     [X] same cases as above
+    //   [X] given both tokens have 18 decimals
+    //     [X] same cases as above
     // [X] given the order originated on a different chain (i.e. it is cross-chain)
     //    [X] given both tokens have 6 decimals
     //      [X] given the fill amount is equal to the amount out remaining
@@ -298,6 +301,58 @@ contract FillOrderTest is OrderBookTestBase {
                 solver: order.solver
             }),
             IOrderBook.FillParams({ amountOutToFill: 0, originRecipient: params.solver })
+        );
+    }
+
+    function test_localOrder_orderCancelled_reverts() public {
+        // Cache alice's starting balances
+        uint256 aliceTokenInBefore = tokenIn.balanceOf(users["alice"]);
+        uint256 aliceTokenOutBefore = tokenOut.balanceOf(users["alice"]);
+
+        // Create a local order
+        params.destChainId = CHAIN_ID;
+        bytes32 orderId = _placeOrder(users["alice"], params);
+        IOrderBook.Order memory order = orderBook.getOrder(orderId);
+
+        // Cancel the order
+        vm.prank(users["alice"]);
+        orderBook.requestCancelOrder(orderId);
+
+        // Open another order from another user with the same token amounts so the contract has tokens to pay out to solver
+        _placeOrder(users["bob"], params);
+
+        // Try to fill the original order
+        vm.prank(params.solver.toAddress());
+        vm.expectRevert(abi.encodeWithSelector(IOrderBook.InvalidOrderStatus.selector));
+        orderBook.fillOrder(
+            orderId,
+            IOrderBook.OrderData({
+                version: order.version,
+                originChainId: CHAIN_ID,
+                sender: order.sender.toBytes32(),
+                nonce: order.nonce,
+                destChainId: order.destChainId,
+                fillDeadline: order.fillDeadline,
+                amountIn: order.amountIn,
+                amountOut: order.amountOut,
+                tokenIn: order.tokenIn.toBytes32(),
+                tokenOut: order.tokenOut,
+                recipient: order.recipient,
+                solver: order.solver
+            }),
+            IOrderBook.FillParams({ amountOutToFill: order.amountOut, originRecipient: params.solver })
+        );
+
+        // Confirm that alice's balances haven't changed
+        vm.assertEq(
+            tokenIn.balanceOf(users["alice"]),
+            aliceTokenInBefore,
+            "alice's tokenIn balance should be unchanged"
+        );
+        vm.assertEq(
+            tokenOut.balanceOf(users["alice"]),
+            aliceTokenOutBefore,
+            "alice's tokenOut balance should be unchanged"
         );
     }
 
