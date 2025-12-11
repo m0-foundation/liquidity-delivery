@@ -15,6 +15,7 @@ use tokio::sync::RwLock;
 use tokio::task::JoinHandle;
 use tokio::time::interval;
 
+use crate::components::ComponentParams;
 use crate::config::{ChainConfig, Network};
 use crate::error::{Result, SolverError};
 use crate::events::{
@@ -78,21 +79,18 @@ impl EventHandler for EvmEventListener {
 }
 
 impl EvmEventListener {
-    pub fn new(
-        event_bus: Arc<EventBus>,
-        chains: Vec<ChainConfig>,
-        logger: Logger,
-        network: Network,
-    ) -> Self {
+    pub fn new(params: &ComponentParams) -> Self {
         Self {
             task_handles: Arc::new(RwLock::new(Vec::new())),
             order_store: Arc::new(RwLock::new(OrderStore::new())),
-            chains,
-            event_bus,
-            logger,
+            chains: params.config.chains.clone(),
+            event_bus: params.event_bus.clone(),
+            logger: params
+                .logger
+                .new(slog::o!("component" => "EvmEventListener")),
             seen_logs: Arc::new(RwLock::new(HashSet::new())),
             last_polled_block: Arc::new(RwLock::new(HashMap::new())),
-            polling_interval: if network == Network::Local {
+            polling_interval: if params.config.network == Network::Local {
                 Duration::from_millis(1000)
             } else {
                 Duration::from_millis(5000)

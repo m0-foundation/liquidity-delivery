@@ -20,6 +20,10 @@ pub enum SolverEvent {
     // Inventory events
     RequestHold(RequestHoldEvent),
     HoldSuccessful(HoldSuccessfulEvent),
+
+    // Chain events
+    RequestFillOrder(RequestFillOrderEvent),
+    FillOrderSuccessful(FillOrderSuccessfulEvent),
 }
 
 /// Event: New order created
@@ -177,10 +181,52 @@ impl RequestHoldEvent {
 #[derive(Debug, Clone)]
 pub struct HoldSuccessfulEvent {
     pub order_id: String,
+    pub hold_amount: u128,
     pub timestamp: u64,
 }
 
 impl HoldSuccessfulEvent {
+    pub fn new(order_id: String, hold_amount: u128) -> Self {
+        Self {
+            order_id,
+            hold_amount,
+            timestamp: SystemTime::now()
+                .duration_since(UNIX_EPOCH)
+                .unwrap()
+                .as_secs(),
+        }
+    }
+}
+
+/// Event: Request an order to be filled
+#[derive(Debug, Clone)]
+pub struct RequestFillOrderEvent {
+    pub order_id: String,
+    pub timestamp: u64,
+    pub amount: u128,
+}
+
+impl RequestFillOrderEvent {
+    pub fn new(order_id: String, amount: u128) -> Self {
+        Self {
+            order_id,
+            amount,
+            timestamp: SystemTime::now()
+                .duration_since(UNIX_EPOCH)
+                .unwrap()
+                .as_secs(),
+        }
+    }
+}
+
+/// Event: Asset hold successful
+#[derive(Debug, Clone)]
+pub struct FillOrderSuccessfulEvent {
+    pub order_id: String,
+    pub timestamp: u64,
+}
+
+impl FillOrderSuccessfulEvent {
     pub fn new(order_id: String) -> Self {
         Self {
             order_id,

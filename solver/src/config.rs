@@ -58,6 +58,8 @@ pub struct Config {
     pub liquidity_api_url: String,
     pub signers: Signers,
     pub rate_limit: RateLimitConfig,
+    pub solver_fee_bps: u32,
+    pub max_order_clip_size: u64,
 }
 
 #[derive(Clone, Debug)]
@@ -77,6 +79,8 @@ impl Default for Config {
             liquidity_api_url: String::from("https://api-mainnet-b325.up.railway.app"),
             signers: Signers::default(),
             rate_limit: RateLimitConfig::default(),
+            solver_fee_bps: 0,
+            max_order_clip_size: 10_000,
         }
     }
 }
@@ -110,6 +114,17 @@ impl Config {
             .unwrap_or(5);
 
         let burst_size = env::var("RATE_LIMIT_BURST_SIZE")
+            .ok()
+            .and_then(|s| s.parse::<u32>().ok())
+            .unwrap_or(10);
+
+        // Order env vars
+        let max_order_clip_size = env::var("MAX_ORDER_CLIP_SIZE")
+            .ok()
+            .and_then(|s| s.parse::<u64>().ok())
+            .unwrap_or(10);
+
+        let solver_fee_bps = env::var("SOLVER_FEE_BPS")
             .ok()
             .and_then(|s| s.parse::<u32>().ok())
             .unwrap_or(10);
@@ -164,6 +179,8 @@ impl Config {
                 max_requests_per_second,
                 burst_size,
             },
+            max_order_clip_size,
+            solver_fee_bps,
         })
     }
 }

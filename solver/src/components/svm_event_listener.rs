@@ -10,6 +10,7 @@ use std::sync::Arc;
 use tokio::sync::RwLock;
 use tokio::task::JoinHandle;
 
+use crate::components::ComponentParams;
 use crate::config::{self, ChainConfig};
 use crate::error::Result;
 use crate::events::{EventBus, EventHandler, EventProcessor, OrderCreatedEvent, SolverEvent};
@@ -26,18 +27,17 @@ pub struct SvmEventListener {
 }
 
 impl SvmEventListener {
-    pub fn new(
-        event_bus: Arc<EventBus>,
-        chains: Vec<ChainConfig>,
-        cluster: config::Network,
-        logger: Logger,
-    ) -> Self {
+    pub fn new(params: &ComponentParams) -> Self {
+        let logger = params
+            .logger
+            .new(slog::o!("component" => "SvmEventListener"));
+
         Self {
             task_handles: Arc::new(RwLock::new(Vec::new())),
             order_store: Arc::new(RwLock::new(OrderStore::new())),
-            chains,
-            cluster,
-            event_bus,
+            chains: params.config.chains.clone(),
+            cluster: params.config.network,
+            event_bus: params.event_bus.clone(),
             logger,
         }
     }

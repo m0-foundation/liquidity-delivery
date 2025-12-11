@@ -16,13 +16,13 @@ use slog::{debug, error, info, warn, Logger};
 use spl_token::solana_program::program_pack::Pack;
 use tokio::sync::RwLock;
 
+use crate::components::ComponentParams;
 use crate::config::{ChainConfig, Signers};
 use crate::error::{Result, SolverError};
 use crate::events::{EventHandler, EventProcessor, HoldSuccessfulEvent, SolverEvent};
 use crate::providers::ProviderManager;
 use crate::stores::{AssetStore, OrderStore};
 use crate::utils::{chain_from_id, chain_runtime, format_address};
-use crate::Config;
 
 // Define ERC20 interface for balance checking
 sol! {
@@ -45,15 +45,21 @@ pub struct InventoryManager {
 }
 
 impl InventoryManager {
-    pub fn new(cfg: Config, provider_manager: Arc<ProviderManager>, logger: Logger) -> Self {
+    pub fn new(params: &ComponentParams) -> Self {
+        let logger = params
+            .logger
+            .new(slog::o!("component" => "InventoryManager"));
+
         Self {
-            signers: cfg.signers,
-            asset_store: Arc::new(RwLock::new(AssetStore::new(cfg.liquidity_api_url))),
+            signers: params.config.signers.clone(),
+            asset_store: Arc::new(RwLock::new(AssetStore::new(
+                params.config.liquidity_api_url.clone(),
+            ))),
             order_store: Arc::new(RwLock::new(OrderStore::new())),
-            chains: cfg.chains,
+            chains: params.config.chains.clone(),
             balances: Arc::new(RwLock::new(HashMap::new())),
             holds: Arc::new(RwLock::new(HashMap::new())),
-            provider_manager,
+            provider_manager: params.provider_manager.clone(),
             logger,
         }
     }
@@ -349,7 +355,7 @@ impl EventHandler for InventoryManager {
                         .insert(e.asset.address.clone(), active_holds + e.amount);
 
                     return Ok(vec![SolverEvent::HoldSuccessful(HoldSuccessfulEvent::new(
-                        e.order_id,
+                        e.order_id, e.amount,
                     ))]);
                 } else {
                     // TODO: acquire inventory
@@ -357,13 +363,7 @@ impl EventHandler for InventoryManager {
             }
             SolverEvent::OrderCompleted(e) => {
                 // Release holds associated with the order
-                let order = self
-                    .order_store
-                    .read()
-                    .await
-                    .get_order(&e.order_id)
-                    .await
-                    .unwrap();
+                let order = self.order_store.read().await.get_order(&e.order_id).await?;
 
                 let address = format_address(&order.data.token_out);
 

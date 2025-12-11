@@ -1,6 +1,7 @@
 use async_trait::async_trait;
 use slog::{info, Logger};
 
+use crate::components::ComponentParams;
 use crate::error::Result;
 use crate::events::{EventHandler, SolverEvent};
 
@@ -9,7 +10,8 @@ pub struct EventLogger {
 }
 
 impl EventLogger {
-    pub fn new(logger: Logger) -> Self {
+    pub fn new(params: &ComponentParams) -> Self {
+        let logger = params.logger.new(slog::o!("component" => "EventLogger"));
         Self { logger }
     }
 }
@@ -31,7 +33,6 @@ impl EventHandler for EventLogger {
                     self.logger,
                     "OrderCreated";
                     "order_id" => %e.order_id,
-                    "event_ts" => e.timestamp,
                 );
             }
             SolverEvent::Start => {
@@ -45,7 +46,6 @@ impl EventHandler for EventLogger {
                     self.logger,
                     "OrderFill";
                     "order_id" => %e.order_id,
-                    "event_ts" => e.timestamp,
                     "amount" => %e.amount,
                 );
             }
@@ -54,7 +54,6 @@ impl EventHandler for EventLogger {
                     self.logger,
                     "OrderRejected";
                     "order_id" => %e.order_id,
-                    "event_ts" => e.timestamp,
                     "reason" => %e.reason,
                 );
             }
@@ -63,7 +62,6 @@ impl EventHandler for EventLogger {
                     self.logger,
                     "OrderCancelRequest";
                     "order_id" => %e.order_id,
-                    "event_ts" => e.timestamp,
                     "requested_at" => e.requested_at,
                 );
             }
@@ -72,7 +70,6 @@ impl EventHandler for EventLogger {
                     self.logger,
                     "OrderRefundClaimed";
                     "order_id" => %e.order_id,
-                    "event_ts" => e.timestamp,
                     "sender" => %e.sender,
                     "amount_refunded" => %e.amount_refunded,
                 );
@@ -82,7 +79,6 @@ impl EventHandler for EventLogger {
                     self.logger,
                     "OrderCompleted";
                     "order_id" => %e.order_id,
-                    "event_ts" => e.timestamp,
                 );
             }
             SolverEvent::RequestHold(e) => {
@@ -90,7 +86,6 @@ impl EventHandler for EventLogger {
                     self.logger,
                     "RequestRebalance";
                     "order_id" => %e.order_id,
-                    "event_ts" => e.timestamp,
                     "asset" => ?e.asset,
                     "amount" => %e.amount,
                 );
@@ -98,9 +93,22 @@ impl EventHandler for EventLogger {
             SolverEvent::HoldSuccessful(e) => {
                 info!(
                     self.logger,
-                    "HoldSuccessfulEvent";
+                    "HoldSuccessful";
                     "order_id" => %e.order_id,
-                    "event_ts" => e.timestamp,
+                );
+            }
+            SolverEvent::RequestFillOrder(e) => {
+                info!(
+                    self.logger,
+                    "RequestFillOrder";
+                    "order_id" => %e.order_id,
+                );
+            }
+            SolverEvent::FillOrderSuccessful(e) => {
+                info!(
+                    self.logger,
+                    "FillOrderSuccessful";
+                    "order_id" => %e.order_id,
                 );
             }
         }

@@ -18,7 +18,7 @@ use tokio::{
 };
 
 use crate::{
-    components::{OrderProcessor, SvmEventListener},
+    components::{ComponentParams, EvmWriter, OrderProcessor, SvmEventListener},
     error::SolverError,
     events::{EventHandler, SolverEvent},
 };
@@ -53,37 +53,25 @@ pub async fn run_solver(
     ));
     provider_manager.initialize(&config.chains).await?;
 
+    let params = ComponentParams {
+        event_bus: event_bus.clone(),
+        config: config.clone(),
+        logger: logger.clone(),
+        provider_manager: provider_manager.clone(),
+    };
+
     // Initialize components
-    let evm_listener = Arc::new(EvmEventListener::new(
-        event_bus.clone(),
-        config.chains.clone(),
-        logger.new(slog::o!("component" => "EvmEventListener")),
-        config.network,
-    ));
-    let svm_listener = Arc::new(SvmEventListener::new(
-        event_bus.clone(),
-        config.chains.clone(),
-        config.network,
-        logger.new(slog::o!("component" => "SvmEventListener")),
-    ));
-    let order_processor = Arc::new(OrderProcessor::new(
-        config.liquidity_api_url.clone(),
-        logger.new(slog::o!("component" => "OrderProcessor")),
-    ));
-    let inventory_manager = Arc::new(InventoryManager::new(
-        config,
-        provider_manager.clone(),
-        logger.new(slog::o!("component" => "InventoryManager")),
-    ));
-    let event_logger = Arc::new(components::EventLogger::new(
-        logger.new(slog::o!("component" => "EventLogger")),
-    ));
-    let order_timer = Arc::new(components::OrderTimer::new(
-        logger.new(slog::o!("component" => "OrderTimer")),
-    ));
+    let evm_listener = Arc::new(EvmEventListener::new(&params));
+    let evm_writer = Arc::new(EvmWriter::new(&params));
+    let svm_listener = Arc::new(SvmEventListener::new(&params));
+    let order_processor = Arc::new(OrderProcessor::new(&params));
+    let inventory_manager = Arc::new(InventoryManager::new(&params));
+    let event_logger = Arc::new(components::EventLogger::new(&params));
+    let order_timer = Arc::new(components::OrderTimer::new(&params));
 
     // Initialize all components
     evm_listener.initialize().await?;
+    evm_writer.initialize().await?;
     svm_listener.initialize().await?;
     order_processor.initialize().await?;
     inventory_manager.initialize().await?;
@@ -92,6 +80,7 @@ pub async fn run_solver(
 
     // Spawn handlers for all components
     register_component(&evm_listener, &event_bus, &shutdown_tx);
+    register_component(&evm_writer, &event_bus, &shutdown_tx);
     register_component(&svm_listener, &event_bus, &shutdown_tx);
     register_component(&order_processor, &event_bus, &shutdown_tx);
     register_component(&inventory_manager, &event_bus, &shutdown_tx);

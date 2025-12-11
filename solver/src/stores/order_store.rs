@@ -51,9 +51,12 @@ impl OrderStore {
         }
     }
 
-    pub async fn get_order(&self, order_id: &String) -> Option<Order> {
+    pub async fn get_order(&self, order_id: &String) -> Result<Order> {
         let orders = self.orders.read().await;
-        orders.get(order_id).cloned()
+        orders
+            .get(order_id)
+            .cloned()
+            .ok_or_else(|| SolverError::OrderNotFound(order_id.to_string()))
     }
 }
 
