@@ -89,6 +89,7 @@ interface IOrderBook {
     error InvalidDeadline();
     error InvalidDestinationChain();
     error InvalidFinalityBuffer();
+    error InvalidMsgValue();
     error InvalidNonce();
     error InvalidOrderStatus();
     error InvalidOrderVersion();
@@ -418,23 +419,53 @@ interface IOrderBook {
      * @param orderData_ OrderData payload with all order information required to identify an order to be filled
      * @param fillerParams_ Parameters supplied by the solver of the order
      * @dev   The orderData is packed and hashed to verify the order ID as a safeguard for solvers
+     * @dev   The payable amount is forwarded to the underlying messenger contract to send crosschain messages.
+     *        This should be 0 for same chain fills. For crosschain fills, see the Portal V2 contract for guidance on
+     *        getting a quote for the required fee
      */
-    function fillOrder(bytes32 orderId_, OrderData calldata orderData_, FillParams calldata fillerParams_) external;
+    function fillOrder(
+        bytes32 orderId_,
+        OrderData calldata orderData_,
+        FillParams calldata fillerParams_
+    ) external payable;
 
     /**
      * @notice Fill an order on this chain with additional message data required by some crosschain messages
      * @param orderId_ ID of the order to fill
      * @param orderData_ OrderData payload with all order information required to identify an order to be filled
      * @param fillerParams_ Parameters supplied by the solver of the order
-     * @param messageData_ Additional message data required by some crosschain message protocols (see PortalV2 for more info)
+     * @param bridgeAdapterArgs_ Additional data required by some crosschain message protocols (see PortalV2 for more info)
      * @dev   The orderData is packed and hashed to verify the order ID as a safeguard for solvers
+     * @dev   The payable amount is forwarded to the underlying messenger contract to send crosschain messages.
+     *        This should be 0 for same chain fills. For crosschain fills, see the Portal V2 contract for guidance on
+     *        getting a quote for the required fee
      */
     function fillOrder(
         bytes32 orderId_,
         OrderData calldata orderData_,
         FillParams calldata fillerParams_,
-        bytes calldata messageData_
-    ) external;
+        bytes calldata bridgeAdapterArgs_
+    ) external payable;
+
+    /**
+     * @notice Fill an order on this chain with additional message data required by some crosschain messages
+     * @param orderId_ ID of the order to fill
+     * @param orderData_ OrderData payload with all order information required to identify an order to be filled
+     * @param fillerParams_ Parameters supplied by the solver of the order
+     * @param bridgeAdapter_ Address of the bridge adapter to use for crosschain messages (must be supported by Portal V2)
+     * @param bridgeAdapterArgs_ Additional data required by some crosschain message protocols (see PortalV2 for more info)
+     * @dev   The orderData is packed and hashed to verify the order ID as a safeguard for solvers
+     * @dev   The payable amount is forwarded to the underlying messenger contract to send crosschain messages.
+     *        This should be 0 for same chain fills. For crosschain fills, see the Portal V2 contract for guidance on
+     *        getting a quote for the required fee
+     */
+    function fillOrder(
+        bytes32 orderId_,
+        OrderData calldata orderData_,
+        FillParams calldata fillerParams_,
+        address bridgeAdapter_,
+        bytes calldata bridgeAdapterArgs_
+    ) external payable;
 
     /**
      * @notice Report a fill that was made on another chain back to this chain as the origin chain

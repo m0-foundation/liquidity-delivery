@@ -9,7 +9,7 @@ import { TypeConverter } from "../lib/common/src/libs/TypeConverter.sol";
 import { SafeERC20 } from "./libs/SafeERC20.sol";
 
 import { IOrderBook } from "./interfaces/IOrderBook.sol";
-import { IMessenger } from "./interfaces/IMessenger.sol";
+import { IPortalV2Like } from "./interfaces/IPortalV2Like.sol";
 
 abstract contract OrderBookStorageLayout {
     /// @custom:storage-location erc7201:M0.storage.OrderBook
@@ -56,16 +56,16 @@ contract OrderBook is IOrderBook, OrderBookStorageLayout, AccessControlUpgradeab
     /// @notice the chain ID of this chain according to the messaging network used by this contract
     uint32 public immutable chainId;
 
-    /// @notice the messenger contract used for cross-chain communication
+    /// @notice the portal contract used for cross-chain communication
     /// @dev sends crosschain messages to report fills on this chain to other chains
     ///      receive crosschain messages to report fills on other chains to this chain
-    address public immutable messenger;
+    address public immutable portal;
 
     /* ========== Construct and Initialize ========== */
 
-    constructor(uint32 chainId_, address messenger_) {
+    constructor(uint32 chainId_, address portal_) {
         chainId = chainId_;
-        messenger = messenger_;
+        portal = portal_;
     }
 
     function initialize(address admin) external initializer {
@@ -371,8 +371,8 @@ contract OrderBook is IOrderBook, OrderBookStorageLayout, AccessControlUpgradeab
         bytes32 orderId_,
         OrderData calldata orderData_,
         FillParams calldata fillerParams_
-    ) external override {
-        _fillOrder(orderId_, orderData_, fillerParams_, new bytes(0));
+    ) external payable override {
+        _fillOrder(orderId_, orderData_, fillerParams_, address(0), new bytes(0));
     }
 
     /// @inheritdoc IOrderBook
@@ -380,16 +380,28 @@ contract OrderBook is IOrderBook, OrderBookStorageLayout, AccessControlUpgradeab
         bytes32 orderId_,
         OrderData calldata orderData_,
         FillParams calldata fillerParams_,
-        bytes calldata messageData_
-    ) external override {
-        _fillOrder(orderId_, orderData_, fillerParams_, messageData_);
+        bytes calldata bridgeAdapterArgs_
+    ) external payable override {
+        _fillOrder(orderId_, orderData_, fillerParams_, address(0), bridgeAdapterArgs_);
+    }
+
+    /// @inheritdoc IOrderBook
+    function fillOrder(
+        bytes32 orderId_,
+        OrderData calldata orderData_,
+        FillParams calldata fillerParams_,
+        address bridgeAdapter_,
+        bytes calldata bridgeAdapterArgs_
+    ) external payable override {
+        _fillOrder(orderId_, orderData_, fillerParams_, bridgeAdapter_, bridgeAdapterArgs_);
     }
 
     function _fillOrder(
         bytes32 orderId_,
         OrderData calldata orderData_,
         FillParams calldata fillerParams_,
-        bytes memory messageData_
+        address bridgeAdapter_,
+        bytes memory bridgeAdapterArgs_
     ) internal {
         // Ensure the provided order ID matches the computed order ID from the order data
         // This check is not strictly required, but it is a useful sanity check for solvers
@@ -429,6 +441,9 @@ contract OrderBook is IOrderBook, OrderBookStorageLayout, AccessControlUpgradeab
 
         // If local order, release the corresponding amount of origin tokens to the filler
         if (chainId == orderData_.originChainId) {
+            // Validate msg.value is 0 for local fills
+            if (msg.value != 0) revert InvalidMsgValue();
+
             // If a full fill, mark the order as completed
             Order storage order = $.localOrders[orderId_];
 
@@ -456,17 +471,30 @@ contract OrderBook is IOrderBook, OrderBookStorageLayout, AccessControlUpgradeab
         // we need to send a message back to the origin chain to release
         // the corresponding amount of tokenIn to the solver's recipient
         if (chainId != orderData_.originChainId) {
-            IMessenger(messenger).sendFillReport(
-                orderData_.originChainId,
-                FillReport({
-                    orderId: orderId_,
-                    originRecipient: fillerParams_.originRecipient,
-                    amountOutFilled: amountOutToFill_,
-                    amountInToRelease: amountInToRelease_,
-                    tokenIn: orderData_.tokenIn
-                }),
-                messageData_
-            );
+            FillReport memory report_ = FillReport({
+                orderId: orderId_,
+                originRecipient: fillerParams_.originRecipient,
+                amountOutFilled: amountOutToFill_,
+                amountInToRelease: amountInToRelease_,
+                tokenIn: orderData_.tokenIn
+            });
+
+            // Send fill report to the origin chain and pass along msg.value
+            // to the portal for crosschain message fee
+            bridgeAdapter_ == address(0)
+                ? IPortalV2Like(portal).sendFillReport{ value: msg.value }(
+                    orderData_.originChainId, // destinationChainId (of this message)
+                    report_, // report
+                    msg.sender.toBytes32(), // refundAddress
+                    bridgeAdapterArgs_
+                )
+                : IPortalV2Like(portal).sendFillReport{ value: msg.value }(
+                    orderData_.originChainId, // destinationChainId (of this message)
+                    report_, // report
+                    msg.sender.toBytes32(), // refundAddress
+                    bridgeAdapter_,
+                    bridgeAdapterArgs_
+                );
         }
 
         emit OrderFilled(orderId_, msg.sender, amountInToRelease_, amountOutToFill_);
@@ -480,7 +508,7 @@ contract OrderBook is IOrderBook, OrderBookStorageLayout, AccessControlUpgradeab
         Order storage order = $.localOrders[report_.orderId];
 
         // Validate the fill report and sender
-        if (msg.sender != messenger) revert NotAuthorized();
+        if (msg.sender != portal) revert NotAuthorized();
         if (order.status != OrderStatus.Created && order.status != OrderStatus.CancelRequested)
             revert InvalidOrderStatus();
         if (report_.tokenIn != order.tokenIn.toBytes32()) revert InvalidReport();
