@@ -67,6 +67,13 @@ interface IOrderBook {
     event OrderCompleted(bytes32 orderId);
 
     /**
+     * @notice Emitted when an order is cancelled
+     * @dev This event is emitted on the origin chain
+     * @param orderId The ID of the cancelled order
+     */
+    event OrderCancelled(bytes32 indexed orderId);
+
+    /**
      * @notice Emitted when the support for a destination chain is updated
      * @dev This event is emitted on the origin chain
      * @param destChainId The internal chain ID of the destination chain
@@ -88,8 +95,10 @@ interface IOrderBook {
     error InvalidOriginChain();
     error InvalidRecipient();
     error InvalidReport();
+    error InvalidTimestamp();
     error NotAuthorized();
     error OrderExpired();
+    error OrderAlreadyExists();
     error OrderAlreadyFilled();
     error OrderIdMismatch();
 
@@ -157,7 +166,7 @@ interface IOrderBook {
     enum OrderStatus {
         DoesNotExist,
         Created,
-        CancelRequested,
+        Cancelled,
         Completed
     }
 
@@ -169,8 +178,8 @@ interface IOrderBook {
      * @param sender Address that provided the funds on the origin chain
      * @param nonce A counter tied to the sender to allow unique orders
      * @param destChainId Destination chain ID where the order is to be filled
+     * @param createdAt Timestamp when the order was created
      * @param fillDeadline Timestamp by which the order must be filled on the destination chain
-     * @param cancelRequestedAt Timestamp when the cancel was requested, 0 if no cancel requested
      * @param tokenIn Address of the input token on this chain
      * @param tokenOut Address of the output token on the destination chain
      * @param amountIn Amount of input token provided
@@ -184,8 +193,8 @@ interface IOrderBook {
         address sender; //             20 +
         uint64 nonce; //               8 = 31 bytes
         uint32 destChainId; // slot 2: 4 +
+        uint32 createdAt; //           4 +
         uint32 fillDeadline; //        4 +
-        uint32 cancelRequestedAt; //   4 +
         address tokenIn; //            20 = 32 bytes
         bytes32 tokenOut; //   slot 3
         uint128 amountIn; //   slot 4: 16 +
@@ -204,6 +213,7 @@ interface IOrderBook {
      * @param nonce A counter tied to the sender to allow unique orders
      * @param originChainId internal chain ID where the order was created
      * @param destChainId Destination chain ID where the order is to be filled
+     * @param createdAt Timestamp when the order was created
      * @param fillDeadline Timestamp by which the order must be filled on the destination chain
      * @param tokenIn Address of the input token on the origin chain
      * @param tokenOut Address of the output token on the destination chain
@@ -218,6 +228,7 @@ interface IOrderBook {
         uint64 nonce;
         uint32 originChainId;
         uint32 destChainId;
+        uint64 createdAt;
         uint64 fillDeadline;
         bytes32 tokenIn;
         bytes32 tokenOut;

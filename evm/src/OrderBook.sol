@@ -16,8 +16,8 @@ abstract contract OrderBookStorageLayout {
     struct OrderBookStorageStruct {
         // supported destination chains
         mapping(uint32 destChainId => bool isSupported) supportedDestinations;
-        // only store full data about origin orders
-        mapping(bytes32 orderId => IOrderBook.Order) localOrders;
+        // only store full data about origin orders, status is tracked for all orders
+        mapping(bytes32 orderId => IOrderBook.Order) orders;
         // store fill amounts for both origin and destination orders
         mapping(bytes32 orderId => IOrderBook.FilledAmounts) filledAmounts;
         // track nonces for each sender to ensure unique order IDs
@@ -194,6 +194,7 @@ contract OrderBook is IOrderBook, OrderBookStorageLayout, AccessControlUpgradeab
                 sender: sender_.toBytes32(),
                 nonce: nonce_,
                 destChainId: orderParams_.destChainId,
+                createdAt: uint32(block.timestamp),
                 fillDeadline: uint64(orderParams_.fillDeadline),
                 tokenIn: orderParams_.tokenIn.toBytes32(),
                 tokenOut: orderParams_.tokenOut,
@@ -204,11 +205,16 @@ contract OrderBook is IOrderBook, OrderBookStorageLayout, AccessControlUpgradeab
             })
         );
 
-        $.localOrders[orderId_] = Order({
+        // Shouldn't be needed due to uniqueness of order ID, but
+        // it is good to be explicit about the expected state
+        // and this protects against a (very unlikely) hash collision
+        if ($.orders[orderId_].status != OrderStatus.DoesNotExist) revert OrderAlreadyExists();
+
+        $.orders[orderId_] = Order({
             version: VERSION, // origin contract version
             status: OrderStatus.Created,
             destChainId: orderParams_.destChainId,
-            cancelRequestedAt: uint32(0),
+            createdAt: uint32(block.timestamp),
             fillDeadline: orderParams_.fillDeadline,
             nonce: nonce_,
             tokenIn: orderParams_.tokenIn,
@@ -276,14 +282,9 @@ contract OrderBook is IOrderBook, OrderBookStorageLayout, AccessControlUpgradeab
 
     /// @inheritdoc IOrderBook
     function cancelOrder(bytes32 orderId_, OrderData calldata orderData_, bytes memory messageData_) external override {
-        if (orderId_ != getOrderId(orderData_)) revert OrderIdMismatch();
-        // if (orderData_.version != VERSION) revert InvalidOrderVersion();
+        // Verify sender
+        // TODO: consider allowing recipient or another designated address to cancel
         if (orderData_.sender.toAddress() != msg.sender) revert NotAuthorized();
-
-        // TODO: replace with status check
-        uint128 amountOutRemaining_ = orderData_.amountOut -
-            _getOrderBookStorageLocation().filledAmounts[orderId_].amountOutFilled;
-        if (amountOutRemaining_ == 0) revert OrderAlreadyFilled();
 
         _cancelOrder(orderId_, orderData_, messageData_);
     }
@@ -295,9 +296,6 @@ contract OrderBook is IOrderBook, OrderBookStorageLayout, AccessControlUpgradeab
         bytes memory messageData_,
         bytes calldata signature_
     ) external override {
-        if (orderId_ != getOrderId(orderData_)) revert OrderIdMismatch();
-        // if (orderData_.version != VERSION) revert InvalidOrderVersion();
-
         // Verify signature
         if (signature_.length == 64) {
             (bytes32 r, bytes32 vs) = abi.decode(signature_, (bytes32, bytes32));
@@ -310,20 +308,36 @@ contract OrderBook is IOrderBook, OrderBookStorageLayout, AccessControlUpgradeab
     }
 
     function _cancelOrder(bytes32 orderId_, OrderData calldata orderData_, bytes memory messageData_) internal {
-        if (orderData_.destChainId == chainId) {
+        if (orderId_ != getOrderId(orderData_)) revert OrderIdMismatch();
+        // Can't cancel an order before it's created
+        if (orderData_.createdAt > block.timestamp) revert InvalidTimestamp();
+
+        Order storage order = _getOrderBookStorageLocation().orders[orderId_];
+
+        // Check order status
+        // If local order, status must be Created
+        // If cross-chain order, status must be DoesNotExist (if not filled at all yet) or Created (if already partially filled)
+        if (
+            order.status != OrderStatus.Created &&
+            !(orderData_.originChainId != chainId && order.status == OrderStatus.DoesNotExist)
+        ) revert InvalidOrderStatus();
+
+        if (orderData_.originChainId == chainId) {
             // Local orders can be immediately refunded
-            Order storage order = _getOrderBookStorageLocation().localOrders[orderId_];
-
-            if (order.status != OrderStatus.Created) revert InvalidOrderStatus();
-
             _claimRefund(orderId_, order);
         } else {
+            // Update order status
+            order.status = OrderStatus.Cancelled;
+
+            // Cross-chain orders require sending a cancel report to the origin chain
             IMessenger(messenger).sendCancelReport(
                 orderData_.originChainId,
                 CancelReport({ orderId: orderId_ }),
                 messageData_
             );
         }
+
+        emit OrderCancelled(orderId_);
     }
 
     function _claimRefund(bytes32 orderId_, Order storage order) internal {
@@ -331,8 +345,8 @@ contract OrderBook is IOrderBook, OrderBookStorageLayout, AccessControlUpgradeab
         uint128 amountInRemaining_ = order.amountIn -
             _getOrderBookStorageLocation().filledAmounts[orderId_].amountInReleased;
 
-        // Set the order status to completed
-        order.status = OrderStatus.Completed;
+        // Update order status
+        order.status = OrderStatus.Cancelled;
 
         // Transfer the remaining amount back to the sender
         IERC20(order.tokenIn).safeTransfer(order.sender, uint256(amountInRemaining_));
@@ -376,6 +390,7 @@ contract OrderBook is IOrderBook, OrderBookStorageLayout, AccessControlUpgradeab
         if (chainId != orderData_.destChainId) revert InvalidDestinationChain();
         if (orderData_.fillDeadline < block.timestamp) revert OrderExpired();
         if (orderData_.version != VERSION) revert InvalidOrderVersion();
+        if (orderData_.createdAt > block.timestamp) revert InvalidTimestamp();
         if (fillerParams_.amountOutToFill == 0) revert FillAmountZero();
 
         // If the solver is specified, ensure that the caller is the designated solver
@@ -384,20 +399,47 @@ contract OrderBook is IOrderBook, OrderBookStorageLayout, AccessControlUpgradeab
 
         OrderBookStorageStruct storage $ = _getOrderBookStorageLocation();
 
-        // Calculate fill amount as the minimum of the filler provided amount and the remaining unfilled amount
-        IOrderBook.FilledAmounts storage filledAmounts = $.filledAmounts[orderId_];
+        Order storage order = $.orders[orderId_];
 
-        // TODO: replace with status check
-        uint128 amountOutRemaining_ = orderData_.amountOut - filledAmounts.amountOutFilled;
-        if (amountOutRemaining_ == 0) revert OrderAlreadyFilled();
+        // Check order status
+        // If local order, status must be Created
+        // If cross-chain order, status must be DoesNotExist (if not filled at all yet) or Created (if already partially filled)
+        if (
+            order.status != OrderStatus.Created &&
+            !(orderData_.originChainId != chainId && order.status == OrderStatus.DoesNotExist)
+        ) revert InvalidOrderStatus();
 
-        bool fullFill_ = fillerParams_.amountOutToFill >= amountOutRemaining_;
-        uint128 amountOutToFill_ = fullFill_ ? amountOutRemaining_ : fillerParams_.amountOutToFill;
+        uint128 amountInToRelease_;
+        uint128 amountOutToFill_;
+        // Local scope to avoid stack too deep errors
+        {
+            // Calculate fill amount as the minimum of the filler provided amount and the remaining unfilled amount
+            IOrderBook.FilledAmounts storage filledAmounts = $.filledAmounts[orderId_];
 
-        // Calculate the corresponding of token in to release to the filler
-        uint128 amountInToRelease_ = fullFill_
-            ? orderData_.amountIn - filledAmounts.amountInReleased // remaining amount
-            : ((uint256(orderData_.amountIn) * amountOutToFill_) / orderData_.amountOut).toUint128();
+            uint128 amountOutRemaining_ = orderData_.amountOut - filledAmounts.amountOutFilled;
+            bool fullFill_ = fillerParams_.amountOutToFill >= amountOutRemaining_;
+            amountOutToFill_ = fullFill_ ? amountOutRemaining_ : fillerParams_.amountOutToFill;
+
+            // Calculate the corresponding of token in to release to the filler
+            amountInToRelease_ = fullFill_
+                ? orderData_.amountIn - filledAmounts.amountInReleased // remaining amount
+                : ((uint256(orderData_.amountIn) * amountOutToFill_) / orderData_.amountOut).toUint128();
+
+            // Update filled amounts
+            filledAmounts.amountOutFilled += amountOutToFill_;
+            filledAmounts.amountInReleased += amountInToRelease_;
+
+            // If full fill, update order status to completed
+            if (fullFill_) {
+                order.status = OrderStatus.Completed;
+                emit OrderCompleted(orderId_);
+            } else {
+                // Set order status to created in case of uninitialized cross-chain order
+                if (orderData_.originChainId != chainId && order.status == OrderStatus.DoesNotExist) {
+                    order.status = OrderStatus.Created;
+                }
+            }
+        }
 
         // Transfer tokens from the solver to the recipient
         IERC20(orderData_.tokenOut.toAddress()).safeTransferExactFrom(
@@ -406,20 +448,8 @@ contract OrderBook is IOrderBook, OrderBookStorageLayout, AccessControlUpgradeab
             uint256(amountOutToFill_)
         );
 
-        // Update filled amounts
-        filledAmounts.amountOutFilled += amountOutToFill_;
-        filledAmounts.amountInReleased += amountInToRelease_;
-
         // If local order, release the corresponding amount of origin tokens to the filler
         if (chainId == orderData_.originChainId) {
-            // If a full fill, mark the order as completed
-            Order storage order = $.localOrders[orderId_];
-
-            if (fullFill_) {
-                order.status = OrderStatus.Completed;
-                emit OrderCompleted(orderId_);
-            }
-
             // If this is a fill on the origin chain, we can immediately release the token in to the filler
             // This is because the origin and destination chains are the same, so no cross-chain messaging is needed
             IERC20(order.tokenIn).safeTransferExact(
@@ -451,12 +481,11 @@ contract OrderBook is IOrderBook, OrderBookStorageLayout, AccessControlUpgradeab
     /// @inheritdoc IOrderBook
     function reportFill(FillReport calldata report_) external override {
         OrderBookStorageStruct storage $ = _getOrderBookStorageLocation();
-        Order storage order = $.localOrders[report_.orderId];
+        Order storage order = $.orders[report_.orderId];
 
         // Validate the fill report and sender
         if (msg.sender != messenger) revert NotAuthorized();
-        if (order.status != OrderStatus.Created && order.status != OrderStatus.CancelRequested)
-            revert InvalidOrderStatus();
+        if (order.status != OrderStatus.Created) revert InvalidOrderStatus();
         if (report_.tokenIn != order.tokenIn.toBytes32()) revert InvalidReport();
 
         // Update the fill amounts for the order
@@ -481,7 +510,7 @@ contract OrderBook is IOrderBook, OrderBookStorageLayout, AccessControlUpgradeab
 
     /// @inheritdoc IOrderBook
     function reportCancel(CancelReport calldata report_) external override {
-        Order storage order = _getOrderBookStorageLocation().localOrders[report_.orderId];
+        Order storage order = _getOrderBookStorageLocation().orders[report_.orderId];
 
         // Validate the cancel report and sender
         if (msg.sender != messenger) revert NotAuthorized();
@@ -522,6 +551,7 @@ contract OrderBook is IOrderBook, OrderBookStorageLayout, AccessControlUpgradeab
                     orderData_.nonce,
                     orderData_.originChainId,
                     orderData_.destChainId,
+                    orderData_.createdAt,
                     orderData_.fillDeadline,
                     orderData_.tokenIn,
                     orderData_.tokenOut,
@@ -536,7 +566,7 @@ contract OrderBook is IOrderBook, OrderBookStorageLayout, AccessControlUpgradeab
     /// @inheritdoc IOrderBook
     function getOrder(bytes32 orderId_) external view override returns (Order memory) {
         OrderBookStorageStruct storage $ = _getOrderBookStorageLocation();
-        return $.localOrders[orderId_];
+        return $.orders[orderId_];
     }
 
     /// @inheritdoc IOrderBook
