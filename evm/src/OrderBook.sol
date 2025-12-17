@@ -194,7 +194,7 @@ contract OrderBook is IOrderBook, OrderBookStorageLayout, AccessControlUpgradeab
                 sender: sender_.toBytes32(),
                 nonce: nonce_,
                 destChainId: orderParams_.destChainId,
-                createdAt: uint32(block.timestamp),
+                createdAt: uint64(block.timestamp),
                 fillDeadline: uint64(orderParams_.fillDeadline),
                 tokenIn: orderParams_.tokenIn.toBytes32(),
                 tokenOut: orderParams_.tokenOut,
