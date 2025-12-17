@@ -65,6 +65,7 @@ pub struct Config {
     pub signers: Signers,
     pub rpc_rate_limit: RateLimitConfig,
     pub solver_fee_bps: u32,
+    pub auto_rebalance: bool,
     pub max_order_clip_size: u64,
     pub supported_assets: SupportedAssets,
 }
@@ -79,6 +80,7 @@ struct ConfigFile {
     svm_private_key: String,
     rpc_rate_limit: Option<RateLimitConfig>,
     solver_fee_bps: Option<u32>,
+    auto_rebalance: Option<bool>,
     max_order_clip_size: Option<u64>,
     supported_assets: Option<SupportedAssets>,
 }
@@ -142,6 +144,7 @@ impl Default for Config {
             solver_fee_bps: 0,
             max_order_clip_size: 10_000,
             supported_assets: SupportedAssets::default(),
+            auto_rebalance: true,
         }
     }
 }
@@ -205,6 +208,7 @@ impl Config {
             solver_fee_bps: config_file.solver_fee_bps.unwrap_or(0),
             max_order_clip_size: config_file.max_order_clip_size.unwrap_or(10_000),
             supported_assets: config_file.supported_assets.unwrap_or_default(),
+            auto_rebalance: config_file.auto_rebalance.unwrap_or(true),
         })
     }
 }

@@ -40,7 +40,7 @@ pub use IOrderBook::OrderParams;
 
 pub struct TestSuite {
     pub chains: Vec<ChainInstance>,
-    pub evm_signer: PrivateKeySigner,
+    _evm_signer: PrivateKeySigner,
     pub evm_user: PrivateKeySigner,
     _svm_signer: Arc<Keypair>,
     pub shutdown_tx: broadcast::Sender<()>,
@@ -144,12 +144,16 @@ impl AsyncTestContext for TestSuite {
                     .await
                     .expect("erc20 token deploy failed");
 
+                let amount = if i == 2 {
+                    // Only leave solver with 10 tokens to test insufficient funds
+                    U256::from(999999999999990u128) * U256::from(10).pow(U256::from(6))
+                } else {
+                    U256::from(100) * U256::from(10).pow(U256::from(6))
+                };
+
                 // Transfer 100 tokens to the user
                 token
-                    .transfer(
-                        evm_user.address(),
-                        U256::from(100) * U256::from(10).pow(U256::from(6)),
-                    )
+                    .transfer(evm_user.address(), amount)
                     .send()
                     .await
                     .expect("Failed to send mint transaction")
@@ -238,7 +242,7 @@ impl AsyncTestContext for TestSuite {
 
         let suite = TestSuite {
             chains,
-            evm_signer,
+            _evm_signer: evm_signer,
             evm_user,
             _svm_signer: svm_signer,
             shutdown_tx,

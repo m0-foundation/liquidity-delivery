@@ -10,6 +10,7 @@ rpc_rate_limit:
 # Order configuration
 max_order_clip_size: 10000
 solver_fee_bps: 1
+auto_rebalance: true
 
 # Keys
 evm_private_key: "0x0000000000000000000000000000000000000000000000000000000000000000"

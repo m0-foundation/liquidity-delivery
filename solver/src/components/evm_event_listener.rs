@@ -410,10 +410,7 @@ impl EvmEventListener {
             solver: event.solver.into(),
         };
 
-        Ok(SolverEvent::OrderCreated(OrderCreatedEvent::new(
-            order,
-            decode_evm_address(event.tokenIn),
-        )))
+        Ok(SolverEvent::OrderCreated(OrderCreatedEvent::new(order)))
     }
 
     fn handle_fill(log: &Log) -> Result<SolverEvent> {

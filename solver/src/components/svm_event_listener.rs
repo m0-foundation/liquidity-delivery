@@ -115,7 +115,7 @@ impl SvmEventListener {
                         solver: event.solver,
                     };
 
-                    let order_event = OrderCreatedEvent::new(order, event.token_in.to_bytes());
+                    let order_event = OrderCreatedEvent::new(order);
 
                     let event_bus_clone = event_bus.clone();
                     let chain_id_for_error = chain_id.clone();

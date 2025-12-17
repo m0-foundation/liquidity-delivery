@@ -127,6 +127,7 @@ impl EventHandler for OrderProcessor {
                     e.order_id,
                     destination_asset,
                     fill_amount,
+                    true,
                 ))]);
             }
             SolverEvent::HoldSuccessful(e) => {

@@ -24,6 +24,27 @@ pub enum SolverEvent {
     // Chain events
     RequestFillOrder(RequestFillOrderEvent),
     FillOrderSuccessful(FillOrderSuccessfulEvent),
+    RequestSwap(RequestSwapEvent),
+    SwapSuccessful(SwapSuccessfulEvent),
+}
+
+impl SolverEvent {
+    /// Get the order_id from events that contain one
+    pub fn order_id(&self) -> Option<String> {
+        match self {
+            SolverEvent::OrderCreated(e) => Some(e.order_id.clone()),
+            SolverEvent::OrderFill(e) => Some(e.order_id.clone()),
+            SolverEvent::OrderRejected(e) => Some(e.order_id.clone()),
+            SolverEvent::OrderCancelRequest(e) => Some(e.order_id.clone()),
+            SolverEvent::OrderRefundClaimed(e) => Some(e.order_id.clone()),
+            SolverEvent::OrderCompleted(e) => Some(e.order_id.clone()),
+            SolverEvent::RequestHold(e) => Some(e.order_id.clone()),
+            SolverEvent::HoldSuccessful(e) => Some(e.order_id.clone()),
+            SolverEvent::RequestFillOrder(e) => Some(e.order_id.clone()),
+            SolverEvent::FillOrderSuccessful(e) => Some(e.order_id.clone()),
+            _ => None,
+        }
+    }
 }
 
 /// Event: New order created
@@ -32,11 +53,10 @@ pub struct OrderCreatedEvent {
     pub order_id: String,
     pub timestamp: u64,
     pub order: OrderData,
-    pub token_in: [u8; 32],
 }
 
 impl OrderCreatedEvent {
-    pub fn new(order: OrderData, token_in: [u8; 32]) -> Self {
+    pub fn new(order: OrderData) -> Self {
         Self {
             order_id: hex::encode(order.compute_order_id()),
             timestamp: SystemTime::now()
@@ -44,7 +64,6 @@ impl OrderCreatedEvent {
                 .unwrap()
                 .as_secs(),
             order,
-            token_in,
         }
     }
 }
@@ -53,20 +72,12 @@ impl OrderCreatedEvent {
 #[derive(Debug, Clone)]
 pub struct OrderFillEvent {
     pub order_id: String,
-    pub timestamp: u64,
     pub amount: u128,
 }
 
 impl OrderFillEvent {
     pub fn new(order_id: String, amount: u128) -> Self {
-        Self {
-            order_id,
-            amount,
-            timestamp: SystemTime::now()
-                .duration_since(UNIX_EPOCH)
-                .unwrap()
-                .as_secs(),
-        }
+        Self { order_id, amount }
     }
 }
 
@@ -74,20 +85,12 @@ impl OrderFillEvent {
 #[derive(Debug, Clone)]
 pub struct OrderRejectEvent {
     pub order_id: String,
-    pub timestamp: u64,
     pub reason: String,
 }
 
 impl OrderRejectEvent {
     pub fn new(order_id: String, reason: String) -> Self {
-        Self {
-            order_id,
-            reason,
-            timestamp: SystemTime::now()
-                .duration_since(UNIX_EPOCH)
-                .unwrap()
-                .as_secs(),
-        }
+        Self { order_id, reason }
     }
 }
 
@@ -95,7 +98,6 @@ impl OrderRejectEvent {
 #[derive(Debug, Clone)]
 pub struct OrderCancelRequestEvent {
     pub order_id: String,
-    pub timestamp: u64,
     pub requested_at: u64,
 }
 
@@ -104,10 +106,6 @@ impl OrderCancelRequestEvent {
         Self {
             order_id,
             requested_at,
-            timestamp: SystemTime::now()
-                .duration_since(UNIX_EPOCH)
-                .unwrap()
-                .as_secs(),
         }
     }
 }
@@ -116,7 +114,6 @@ impl OrderCancelRequestEvent {
 #[derive(Debug, Clone)]
 pub struct OrderRefundClaimedEvent {
     pub order_id: String,
-    pub timestamp: u64,
     pub sender: String,
     pub amount_refunded: u128,
 }
@@ -127,10 +124,6 @@ impl OrderRefundClaimedEvent {
             order_id,
             sender,
             amount_refunded,
-            timestamp: SystemTime::now()
-                .duration_since(UNIX_EPOCH)
-                .unwrap()
-                .as_secs(),
         }
     }
 }
@@ -158,21 +151,18 @@ impl OrderCompletedEvent {
 #[derive(Debug, Clone)]
 pub struct RequestHoldEvent {
     pub order_id: String,
-    pub timestamp: u64,
     pub asset: Asset,
     pub amount: u128,
+    pub allow_partial_hold: bool,
 }
 
 impl RequestHoldEvent {
-    pub fn new(order_id: String, asset: Asset, amount: u128) -> Self {
+    pub fn new(order_id: String, asset: Asset, amount: u128, allow_partial_hold: bool) -> Self {
         Self {
             order_id,
             asset,
             amount,
-            timestamp: SystemTime::now()
-                .duration_since(UNIX_EPOCH)
-                .unwrap()
-                .as_secs(),
+            allow_partial_hold,
         }
     }
 }
@@ -182,7 +172,6 @@ impl RequestHoldEvent {
 pub struct HoldSuccessfulEvent {
     pub order_id: String,
     pub hold_amount: u128,
-    pub timestamp: u64,
 }
 
 impl HoldSuccessfulEvent {
@@ -190,10 +179,6 @@ impl HoldSuccessfulEvent {
         Self {
             order_id,
             hold_amount,
-            timestamp: SystemTime::now()
-                .duration_since(UNIX_EPOCH)
-                .unwrap()
-                .as_secs(),
         }
     }
 }
@@ -202,20 +187,12 @@ impl HoldSuccessfulEvent {
 #[derive(Debug, Clone)]
 pub struct RequestFillOrderEvent {
     pub order_id: String,
-    pub timestamp: u64,
     pub amount: u128,
 }
 
 impl RequestFillOrderEvent {
     pub fn new(order_id: String, amount: u128) -> Self {
-        Self {
-            order_id,
-            amount,
-            timestamp: SystemTime::now()
-                .duration_since(UNIX_EPOCH)
-                .unwrap()
-                .as_secs(),
-        }
+        Self { order_id, amount }
     }
 }
 
@@ -223,17 +200,42 @@ impl RequestFillOrderEvent {
 #[derive(Debug, Clone)]
 pub struct FillOrderSuccessfulEvent {
     pub order_id: String,
-    pub timestamp: u64,
 }
 
 impl FillOrderSuccessfulEvent {
     pub fn new(order_id: String) -> Self {
+        Self { order_id }
+    }
+}
+
+/// Event: Request an order to be filled
+#[derive(Debug, Clone)]
+pub struct RequestSwapEvent {
+    pub order_id: String,
+    pub token_in: Asset,
+    pub token_out: Asset,
+    pub amount_in: u128,
+}
+
+impl RequestSwapEvent {
+    pub fn new(order_id: String, token_in: Asset, token_out: Asset, amount_in: u128) -> Self {
         Self {
             order_id,
-            timestamp: SystemTime::now()
-                .duration_since(UNIX_EPOCH)
-                .unwrap()
-                .as_secs(),
+            token_in,
+            token_out,
+            amount_in,
         }
+    }
+}
+
+/// Event: Asset hold successful
+#[derive(Debug, Clone)]
+pub struct SwapSuccessfulEvent {
+    pub order_id: String,
+}
+
+impl SwapSuccessfulEvent {
+    pub fn new(order_id: String) -> Self {
+        Self { order_id }
     }
 }

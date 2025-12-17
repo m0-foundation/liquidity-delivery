@@ -84,7 +84,7 @@ impl EventHandler for EventLogger {
             SolverEvent::RequestHold(e) => {
                 info!(
                     self.logger,
-                    "RequestRebalance";
+                    "RequestHold";
                     "order_id" => %e.order_id,
                     "asset" => ?e.asset,
                     "amount" => %e.amount,
@@ -109,6 +109,23 @@ impl EventHandler for EventLogger {
                 info!(
                     self.logger,
                     "FillOrderSuccessful";
+                    "order_id" => %e.order_id,
+                );
+            }
+            SolverEvent::RequestSwap(e) => {
+                info!(
+                    self.logger,
+                    "RequestSwap";
+                    "order_id" => %e.order_id,
+                    "from_token" => %e.token_in.symbol,
+                    "to_asset" => %e.token_out.symbol,
+                    "amount" => %e.amount_in,
+                );
+            }
+            SolverEvent::SwapSuccessful(e) => {
+                info!(
+                    self.logger,
+                    "SwapSuccessful";
                     "order_id" => %e.order_id,
                 );
             }

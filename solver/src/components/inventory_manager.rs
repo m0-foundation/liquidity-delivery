@@ -1,3 +1,4 @@
+use std::cmp::min;
 use std::collections::HashMap;
 use std::str::FromStr;
 use std::sync::Arc;
@@ -13,13 +14,15 @@ use futures_util::future::join_all;
 use m0_liquidity_sdk::types::{Asset, Chain, ChainRuntime};
 use slog::{debug, error, info, warn, Logger};
 use spl_token::solana_program::program_pack::Pack;
-use tokio::sync::RwLock;
+use tokio::sync::{Mutex, RwLock};
 
 use crate::components::ComponentParams;
 use crate::config::ChainConfig;
 use crate::contracts::IERC20;
 use crate::error::{Result, SolverError};
-use crate::events::{EventHandler, EventProcessor, HoldSuccessfulEvent, SolverEvent};
+use crate::events::{
+    EventHandler, EventProcessor, HoldSuccessfulEvent, RequestSwapEvent, SolverEvent,
+};
 use crate::providers::ProviderManager;
 use crate::stores::{AssetStore, OrderStore};
 use crate::utils::{chain_from_id, chain_runtime, format_address};
@@ -28,8 +31,10 @@ pub struct InventoryManager {
     asset_store: Arc<RwLock<AssetStore>>,
     order_store: Arc<RwLock<OrderStore>>,
     chains: Vec<ChainConfig>,
-    balances: Arc<RwLock<HashMap<Asset, u128>>>,
-    holds: Arc<RwLock<HashMap<Chain, HashMap<String, u128>>>>,
+    balances: Arc<Mutex<HashMap<Asset, u128>>>,
+    holds: Arc<Mutex<HashMap<Chain, HashMap<String, u128>>>>,
+    order_holds: Arc<Mutex<HashMap<String, u128>>>,
+    auto_rebalance: bool,
     provider_manager: Arc<ProviderManager>,
     logger: Logger,
 }
@@ -46,8 +51,10 @@ impl InventoryManager {
             ))),
             order_store: Arc::new(RwLock::new(OrderStore::new())),
             chains: params.config.chains.clone(),
-            balances: Arc::new(RwLock::new(HashMap::new())),
-            holds: Arc::new(RwLock::new(HashMap::new())),
+            balances: Arc::new(Mutex::new(HashMap::new())),
+            holds: Arc::new(Mutex::new(HashMap::new())),
+            order_holds: Arc::new(Mutex::new(HashMap::new())),
+            auto_rebalance: params.config.auto_rebalance,
             provider_manager: params.provider_manager.clone(),
             logger,
         }
@@ -129,7 +136,7 @@ impl InventoryManager {
 
                             if amount > 0 {
                                 if let Some(asset) = mint_to_asset.get(&mint) {
-                                    self.balances.write().await.insert(asset.clone(), amount);
+                                    self.balances.lock().await.insert(asset.clone(), amount);
                                     debug!(
                                         self.logger,
                                         "Found svm token balance";
@@ -160,7 +167,7 @@ impl InventoryManager {
             match sol_balance_result {
                 Ok(lamports) => {
                     self.balances
-                        .write()
+                        .lock()
                         .await
                         .insert(AssetStore::get_native(chain.chain), lamports.into());
                 }
@@ -238,7 +245,7 @@ impl InventoryManager {
 
             for (asset, amount) in assets.iter().zip(join_all(balance_futures).await.iter()) {
                 if *amount > 0 {
-                    self.balances.write().await.insert(asset.clone(), *amount);
+                    self.balances.lock().await.insert(asset.clone(), *amount);
                 }
             }
 
@@ -252,7 +259,7 @@ impl InventoryManager {
             match eth_balance_result {
                 Ok(balance) => {
                     self.balances
-                        .write()
+                        .lock()
                         .await
                         .insert(AssetStore::get_native(chain.chain), balance.to());
                 }
@@ -271,7 +278,7 @@ impl InventoryManager {
     }
 
     async fn log_balances(&self) {
-        let balances = self.balances.read().await;
+        let balances = self.balances.lock().await;
 
         let balance_info: Vec<String> = balances
             .iter()
@@ -318,58 +325,125 @@ impl EventHandler for InventoryManager {
 
         match event {
             SolverEvent::RequestHold(e) => {
-                let active_holds = self
-                    .holds
-                    .read()
-                    .await
+                let mut holds = self.holds.lock().await;
+                let mut order_holds = self.order_holds.lock().await;
+                let balance = self.balances.lock().await;
+
+                let active_holds = holds
                     .get(&e.asset.chain)
                     .and_then(|h| h.get(&e.asset.address).cloned())
                     .unwrap_or(0);
 
-                let current_balance = self
-                    .balances
-                    .read()
-                    .await
-                    .get(&e.asset)
-                    .cloned()
-                    .unwrap_or(0);
+                let available = balance.get(&e.asset).cloned().unwrap_or(0) - active_holds;
 
-                if current_balance - active_holds >= e.amount {
-                    let mut holds = self.holds.write().await;
-
+                if available >= e.amount {
                     holds
                         .entry(e.asset.chain)
                         .or_insert_with(HashMap::new)
                         .insert(e.asset.address.clone(), active_holds + e.amount);
 
+                    *order_holds.entry(e.order_id.clone()).or_insert(0) += e.amount;
+
                     return Ok(vec![SolverEvent::HoldSuccessful(HoldSuccessfulEvent::new(
                         e.order_id, e.amount,
                     ))]);
                 } else {
-                    // TODO: acquire inventory
+                    let mut events = vec![];
+
+                    if e.allow_partial_hold {
+                        // Hold remaining amount and partially fill order
+                        holds
+                            .entry(e.asset.chain)
+                            .or_insert_with(HashMap::new)
+                            .insert(e.asset.address.clone(), active_holds + available);
+
+                        *order_holds.entry(e.order_id.clone()).or_insert(0) += available;
+
+                        events.push(SolverEvent::HoldSuccessful(HoldSuccessfulEvent::new(
+                            e.order_id.clone(),
+                            available,
+                        )));
+                    }
+
+                    if !self.auto_rebalance {
+                        warn!(
+                            self.logger,
+                            "Insufficient inventory for hold and auto-rebalance is disabled";
+                            "order_id" => %e.order_id,
+                            "asset" => &e.asset.symbol,
+                            "requested_amount" => e.amount,
+                            "available_amount" => available,
+                        );
+
+                        return Ok(events);
+                    }
+
+                    // naively acquire inventory
+                    let swap_amount = e.amount - available;
+
+                    let largest_balance = balance
+                        .iter()
+                        .filter(|(asset, _)| asset.chain == e.asset.chain && **asset != e.asset)
+                        .max_by_key(|(_, balance)| *balance);
+
+                    if let Some((token, &balance)) = largest_balance {
+                        events.push(SolverEvent::RequestSwap(RequestSwapEvent::new(
+                            e.order_id.clone(),
+                            token.clone(),
+                            e.asset,
+                            min(balance, swap_amount),
+                        )));
+                    } else {
+                        warn!(
+                            self.logger,
+                            "No suitable token found for rebalancing";
+                            "chain" => %e.asset.chain,
+                            "order_id" => %e.order_id
+                        );
+                    }
+
+                    return Ok(events);
                 }
             }
-            SolverEvent::OrderCompleted(e) => {
-                // Release holds associated with the order
+            SolverEvent::OrderCompleted(_) | SolverEvent::OrderCancelRequest(_) => {
+                let order_id = event.order_id().unwrap();
+
+                // Amount of funds held for the order
+                let mut order_holds = self.order_holds.lock().await;
+                let held = order_holds.remove(&order_id).unwrap_or(0);
+
+                if held > 0 {
+                    let order = self.order_store.read().await.get_order(&order_id).await?;
+                    let token = format_address(&order.data.token_out);
+
+                    // Release holds associated with the order
+                    let mut holds = self.holds.lock().await;
+                    if let Some(chain_holds) =
+                        holds.get_mut(&chain_from_id(order.data.dest_chain_id))
+                    {
+                        if let Some(amount) = chain_holds.get_mut(&token) {
+                            *amount = amount.saturating_sub(held);
+                        }
+                    }
+                }
+            }
+            SolverEvent::FillOrderSuccessful(e) => {
                 let order = self.order_store.read().await.get_order(&e.order_id).await?;
 
-                let address = format_address(&order.data.token_out);
+                let result = match chain_runtime(order.data.dest_chain_id) {
+                    ChainRuntime::Evm => self.load_evm_balances().await,
+                    ChainRuntime::Svm => self.load_svm_balances().await,
+                };
 
-                let mut holds = self.holds.write().await;
-                let chain_holds = holds
-                    .entry(chain_from_id(order.data.dest_chain_id))
-                    .or_insert_with(HashMap::new);
-
-                chain_holds.insert(
-                    address.clone(),
-                    chain_holds
-                        .get(&address)
-                        .cloned()
-                        .unwrap_or(0)
-                        .saturating_sub(order.data.amount_in),
-                );
+                if let Err(e) = result {
+                    error!(
+                        self.logger,
+                        "Failed to reload balances";
+                        "chain_id" => %order.data.dest_chain_id,
+                        "error" => %e,
+                    );
+                }
             }
-            // TODO: release funds on OrderRejected, OrderCancelRequest, etc.
             _ => {}
         }
 
