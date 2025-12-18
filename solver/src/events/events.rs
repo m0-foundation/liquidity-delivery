@@ -8,6 +8,7 @@ pub enum SolverEvent {
     // System Events
     Start,
     Stop,
+    Heartbeat(u128),
 
     // Order events
     OrderCreated(OrderCreatedEvent),

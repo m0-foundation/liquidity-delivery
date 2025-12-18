@@ -220,6 +220,8 @@ impl AsyncTestContext for TestSuite {
 
         config.liquidity_api_url = mock_server.url();
         config.signers = Signers::new(evm_signer.clone(), svm_signer.clone());
+        config.max_order_clip_size = 100;
+        config.max_clip_reprocess_delay_sec = 1;
 
         // Support created assets
         config.supported_assets = SupportedAssets {
@@ -268,7 +270,11 @@ impl AsyncTestContext for TestSuite {
 }
 
 impl TestSuite {
-    pub async fn contains_log(&self, pattern: &str) {
+    pub async fn contains_log(&self, pattern: &str) -> usize {
+        self.contains_log_from_index(pattern, 0).await
+    }
+
+    pub async fn contains_log_from_index(&self, pattern: &str, start_index: usize) -> usize {
         let timeout = Duration::from_secs(10);
         let poll_interval = Duration::from_millis(50);
         let start = std::time::Instant::now();
@@ -276,10 +282,10 @@ impl TestSuite {
         let re = Regex::new(&format!(".*{}.*", pattern)).unwrap();
 
         while start.elapsed() < timeout {
-            let logs = self.log_buffer.to_string();
+            let logs = self.log_buffer.to_string().split_off(start_index);
 
-            if re.is_match(&logs) {
-                return;
+            if let Some(mat) = re.find(&logs) {
+                return start_index + mat.end();
             }
 
             // Fail early
@@ -300,9 +306,10 @@ impl TestSuite {
     }
 
     pub async fn contains_order_lifecycle(&self, order_id: &str, events: &[&str]) {
+        let mut start_index: usize = 0;
         for &event in events {
             let pattern = format!("{} .* order_id={}", event, order_id);
-            self.contains_log(&pattern).await;
+            start_index = self.contains_log_from_index(&pattern, start_index).await;
         }
     }
 

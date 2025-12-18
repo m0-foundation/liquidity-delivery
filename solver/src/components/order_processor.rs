@@ -1,7 +1,6 @@
 use async_trait::async_trait;
 use m0_liquidity_sdk::types::Asset;
 use slog::{info, Logger};
-use std::cmp::min;
 use std::sync::Arc;
 use tokio::sync::RwLock;
 
@@ -20,7 +19,9 @@ pub struct OrderProcessor {
     supported_assets: SupportedAssets,
     logger: Logger,
     max_clip_size: u128,
+    clip_process_delay: u64,
     fee_bps: u128,
+    proprocess_queue: Arc<RwLock<Vec<(String, u128)>>>,
 }
 
 impl OrderProcessor {
@@ -33,7 +34,9 @@ impl OrderProcessor {
             supported_assets: params.config.supported_assets.clone(),
             logger: params.logger.new(slog::o!("component" => "OrderProcessor")),
             max_clip_size: params.config.max_order_clip_size as u128,
+            clip_process_delay: params.config.max_clip_reprocess_delay_sec,
             fee_bps: params.config.solver_fee_bps as u128,
+            proprocess_queue: Arc::new(RwLock::new(Vec::new())),
         }
     }
 
@@ -55,6 +58,14 @@ impl OrderProcessor {
 
         Ok(asset)
     }
+
+    fn get_reprocess_time(&self) -> u128 {
+        std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_millis()
+            + self.clip_process_delay as u128
+    }
 }
 
 #[async_trait]
@@ -70,8 +81,8 @@ impl EventHandler for OrderProcessor {
     }
 
     async fn handle_event(&self, event: SolverEvent) -> Result<Vec<SolverEvent>> {
-        let store = self.order_store.read().await;
-        let _ = store.handle_event(event.clone()).await;
+        let order_store = self.order_store.read().await;
+        let _ = order_store.handle_event(event.clone()).await;
 
         match event {
             SolverEvent::OrderCreated(e) => {
@@ -110,17 +121,27 @@ impl EventHandler for OrderProcessor {
 
                 // Clip large orders
                 let max_size = self.max_clip_size * 10u128.pow(destination_asset.decimals as u32);
-                let fill_amount = min(e.order.amount_out, max_size);
 
-                let notional = e.order.amount_out / 10u128.pow(destination_asset.decimals as u32);
-                if notional > 100_000 {
+                let fill_amount = if e.order.amount_out > max_size {
+                    let shifted_amount =
+                        e.order.amount_out / 10u128.pow(destination_asset.decimals as u32);
+
                     info!(
                         self.logger,
-                        "Received large order";
+                        "Clipping large order";
                         "order_id" => e.order_id.clone(),
-                        "notional" => notional
+                        "max_clip" => self.max_clip_size,
+                        "order_sizel" => shifted_amount
                     );
-                }
+
+                    // Queue for reprocessing
+                    let mut queue = self.proprocess_queue.write().await;
+                    queue.push((e.order_id.clone(), self.get_reprocess_time()));
+
+                    max_size
+                } else {
+                    e.order.amount_out
+                };
 
                 // Request hold on destination asset
                 return Ok(vec![SolverEvent::RequestHold(RequestHoldEvent::new(
@@ -134,6 +155,52 @@ impl EventHandler for OrderProcessor {
                 return Ok(vec![SolverEvent::RequestFillOrder(
                     RequestFillOrderEvent::new(e.order_id, e.hold_amount),
                 )]);
+            }
+            SolverEvent::Heartbeat(ts) => {
+                let mut queue = self.proprocess_queue.write().await;
+
+                let mut events = Vec::new();
+                let mut requeue = Vec::new();
+
+                for (order_id, process_time) in queue.iter() {
+                    if *process_time > ts {
+                        break;
+                    }
+
+                    let order = order_store.get_order(order_id).await?;
+                    let asset_store = self.asset_store.read().await;
+
+                    let dest_asset = asset_store
+                        .get_asset(order.data.token_out, order.data.dest_chain_id)
+                        .await
+                        .unwrap();
+
+                    let remaining = order.data.amount_out - order.filled_amount;
+                    let max_size = self.max_clip_size * 10u128.pow(dest_asset.decimals as u32);
+
+                    let fill_amount = if remaining > max_size {
+                        requeue.push(order.id.clone());
+
+                        max_size
+                    } else {
+                        remaining
+                    };
+
+                    events.push(SolverEvent::RequestHold(RequestHoldEvent::new(
+                        order_id.clone(),
+                        dest_asset,
+                        fill_amount,
+                        true,
+                    )));
+                }
+
+                queue.drain(0..events.len());
+
+                for order_id in requeue {
+                    queue.push((order_id, self.get_reprocess_time()));
+                }
+
+                return Ok(events);
             }
             _ => {}
         }

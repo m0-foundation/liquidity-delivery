@@ -67,6 +67,7 @@ pub struct Config {
     pub solver_fee_bps: u32,
     pub auto_rebalance: bool,
     pub max_order_clip_size: u64,
+    pub max_clip_reprocess_delay_sec: u64,
     pub supported_assets: SupportedAssets,
 }
 
@@ -82,6 +83,7 @@ struct ConfigFile {
     solver_fee_bps: Option<u32>,
     auto_rebalance: Option<bool>,
     max_order_clip_size: Option<u64>,
+    max_clip_reprocess_delay_sec: Option<u64>,
     supported_assets: Option<SupportedAssets>,
 }
 
@@ -142,7 +144,8 @@ impl Default for Config {
             signers: Signers::default(),
             rpc_rate_limit: RateLimitConfig::default(),
             solver_fee_bps: 0,
-            max_order_clip_size: 10_000,
+            max_order_clip_size: 250_000,
+            max_clip_reprocess_delay_sec: 60,
             supported_assets: SupportedAssets::default(),
             auto_rebalance: true,
         }
@@ -198,18 +201,36 @@ impl Config {
 
         let svm_private_key = Arc::new(Keypair::from_base58_string(&config_file.svm_private_key));
 
-        Ok(Config {
+        let mut config = Config {
             environment,
             network,
             chains,
             liquidity_api_url: config_file.liquidity_api_url,
             signers: Signers::new(evm_private_key, svm_private_key),
-            rpc_rate_limit: config_file.rpc_rate_limit.unwrap_or_default(),
-            solver_fee_bps: config_file.solver_fee_bps.unwrap_or(0),
-            max_order_clip_size: config_file.max_order_clip_size.unwrap_or(10_000),
-            supported_assets: config_file.supported_assets.unwrap_or_default(),
-            auto_rebalance: config_file.auto_rebalance.unwrap_or(true),
-        })
+            ..Default::default()
+        };
+
+        // Override defaults with provided values
+        if let Some(rpc_rate_limit) = config_file.rpc_rate_limit {
+            config.rpc_rate_limit = rpc_rate_limit;
+        }
+        if let Some(max_clip_reprocess_delay_sec) = config_file.max_clip_reprocess_delay_sec {
+            config.max_clip_reprocess_delay_sec = max_clip_reprocess_delay_sec;
+        }
+        if let Some(solver_fee_bps) = config_file.solver_fee_bps {
+            config.solver_fee_bps = solver_fee_bps;
+        }
+        if let Some(max_order_clip_size) = config_file.max_order_clip_size {
+            config.max_order_clip_size = max_order_clip_size;
+        }
+        if let Some(auto_rebalance) = config_file.auto_rebalance {
+            config.auto_rebalance = auto_rebalance;
+        }
+        if let Some(supported_assets) = config_file.supported_assets {
+            config.supported_assets = supported_assets;
+        }
+
+        Ok(config)
     }
 }
 

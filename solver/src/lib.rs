@@ -88,10 +88,11 @@ pub async fn run_solver(
     register_component(&order_timer, &event_bus, &shutdown_tx, &logger);
 
     // Let everything get started
-    sleep(Duration::from_millis(50)).await;
     info!(logger, "All components registered");
     let _ = event_bus.publish(SolverEvent::Start).await;
     sleep(Duration::from_millis(100)).await;
+
+    event_bus.start_heartbeat();
 
     Ok(shutdown_tx)
 }

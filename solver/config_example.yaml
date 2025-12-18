@@ -9,6 +9,7 @@ rpc_rate_limit:
 
 # Order configuration
 max_order_clip_size: 10000
+max_clip_reprocess_delay_sec: 60 
 solver_fee_bps: 1
 auto_rebalance: true
 

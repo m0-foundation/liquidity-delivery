@@ -140,9 +140,41 @@ async fn test_order_insufficient_solver_funds(ctx: &TestSuite) {
         &[
             "OrderCreated",
             "HoldSuccessful",
+            "RequestSwap",
             "RequestFillOrder",
             "FillOrderSuccessful",
-            "RequestSwap",
+        ],
+    )
+    .await;
+}
+
+#[test_context(TestSuite)]
+#[tokio::test]
+async fn test_order_multiple_clips(ctx: &TestSuite) {
+    let (chain_a, chain_b) = (&ctx.chains[0], &ctx.chains[1]);
+
+    ctx.create_order(
+        chain_a,
+        chain_a.tokens[2].address,
+        chain_b.tokens[0].address,
+        chain_b.chain_id,
+        // max clip size is $100
+        150_000_000,
+        150_000_000,
+    )
+    .await;
+
+    // Fill order in two clips
+    ctx.contains_order_lifecycle(
+        "c9f50de3522efc0bca73b996ab5916ad68ec65d9be0229d76c00ae31ef48f466",
+        &[
+            "OrderCreated",
+            "HoldSuccessful",
+            "RequestFillOrder",
+            "FillOrderSuccessful",
+            "HoldSuccessful",
+            "RequestFillOrder",
+            "FillOrderSuccessful",
         ],
     )
     .await;

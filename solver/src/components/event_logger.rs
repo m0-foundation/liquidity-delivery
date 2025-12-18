@@ -34,11 +34,15 @@ impl EventHandler for EventLogger {
             SolverEvent::Stop => {
                 info!(self.logger, "Stop");
             }
+            SolverEvent::Heartbeat(_) => {}
             SolverEvent::OrderCreated(e) => {
                 info!(
                     self.logger,
                     "OrderCreated";
                     "order_id" => %e.order_id,
+                    "from_asset" => ?e.order.token_in,
+                    "to_asset" => ?e.order.token_out,
+                    "amount" => %e.order.amount_out,
                 );
             }
             SolverEvent::OrderFill(e) => {
