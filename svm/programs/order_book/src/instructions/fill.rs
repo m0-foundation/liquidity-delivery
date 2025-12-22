@@ -330,6 +330,11 @@ impl<'info> FillForeignOrder<'info> {
             OrderBookError::OrderNotFillable
         );
 
+        // Prevent front-running: foreign order must not originate from this chain
+        require!(order_data.origin_chain_id != self.global_account.chain_id,
+            OrderBookError::InvalidOriginChainId
+        );
+
         Ok(())
     }
 
