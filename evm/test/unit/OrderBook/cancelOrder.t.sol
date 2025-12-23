@@ -154,7 +154,11 @@ contract CancelOrderTest is OrderBookTestBase {
         orderBook.cancelOrder(orderId, orderData, new bytes(0));
 
         IOrderBook.Order memory updatedOrder = orderBook.getOrder(orderId);
-        assertEq(uint8(updatedOrder.status), uint8(IOrderBook.OrderStatus.Cancelled), "order status should be Cancelled");
+        assertEq(
+            uint8(updatedOrder.status),
+            uint8(IOrderBook.OrderStatus.Cancelled),
+            "order status should be Cancelled"
+        );
     }
 
     function test_givenCrosschainOrder_success() public {
@@ -217,7 +221,11 @@ contract CancelOrderTest is OrderBookTestBase {
         orderBook.cancelOrder(orderId, orderData, new bytes(0));
 
         IOrderBook.Order memory updatedOrder = orderBook.getOrder(orderId);
-        assertEq(uint8(updatedOrder.status), uint8(IOrderBook.OrderStatus.Cancelled), "order status should be Cancelled");
+        assertEq(
+            uint8(updatedOrder.status),
+            uint8(IOrderBook.OrderStatus.Cancelled),
+            "order status should be Cancelled"
+        );
         assertEq(
             tokenIn.balanceOf(users["alice"]),
             aliceStartingBalance + params.amountIn,

@@ -334,7 +334,7 @@ contract OrderBook is IOrderBook, OrderBookStorageLayout, AccessControlUpgradeab
             // Cross-chain orders require sending a cancel report to the origin chain
             IMessenger(messenger).sendCancelReport(
                 orderData_.originChainId,
-                CancelReport({ orderId: orderId_ }),
+                CancelReport({ orderId: orderId_, orderSender: orderData_.sender, tokenIn: orderData_.tokenIn }),
                 messageData_
             );
         }
@@ -517,6 +517,12 @@ contract OrderBook is IOrderBook, OrderBookStorageLayout, AccessControlUpgradeab
         // Validate the cancel report and sender
         if (msg.sender != messenger) revert NotAuthorized();
         if (order.status != OrderStatus.Created) revert InvalidOrderStatus();
+
+        // Validate the reported order sender and token in match
+        // This isn't strictly required because we use local data,
+        // but invalid reports should not be sent so we prevent this
+        if (order.tokenIn != report_.tokenIn.toAddress() || order.sender != report_.orderSender.toAddress())
+            revert InvalidReport();
 
         _claimRefund(report_.orderId, order);
     }
