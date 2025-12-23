@@ -9,6 +9,7 @@ use crate::{
 };
 use anchor_lang::prelude::*;
 use anchor_spl::token_interface::{Mint, TokenAccount, TokenInterface};
+use crate::utils::close_order_token_account;
 
 #[event_cpi]
 #[derive(Accounts)]
@@ -16,6 +17,7 @@ use anchor_spl::token_interface::{Mint, TokenAccount, TokenInterface};
 pub struct ClaimRefund<'info> {
     /// CHECK: The sender of the order, we don't read any data from here
     /// This does not have to be a signer, anyone can claim refunds on behalf of the sender
+    #[account(mut)]
     pub sender: UncheckedAccount<'info>,
 
     #[account(
@@ -146,6 +148,16 @@ impl ClaimRefund<'_> {
         } else {
             return err!(OrderBookError::OrderFilled);
         }
+
+        // Close ATA (rent back to sender)
+        close_order_token_account(
+            &ctx.accounts.token_in_program,
+            &ctx.accounts.order_token_in_ata,
+            &ctx.accounts.sender.to_account_info(),
+            &ctx.accounts.order.to_account_info(),
+            order_id,
+            ctx.accounts.order.bump,
+        )?;
 
         emit_cpi!(RefundClaimed {
             order_id,

@@ -110,6 +110,7 @@ mod local_orders {
         };
 
         let accounts = order_book::accounts::FillNativeOrder {
+            sender: sender.pubkey(),
             program: order_book::ID,
             event_authority: test.get_event_authority()?,
             solver: solver.pubkey(),
@@ -428,7 +429,7 @@ mod local_orders {
     }
 
     #[test]
-    fn fill_native_order_already_completed_reverts() -> Result<(), Box<dyn Error>> {
+    fn fill_native_order_already_filled_reverts() -> Result<(), Box<dyn Error>> {
         let mut test = OrderBookTest::new()?;
         test.initialize()?;
         let order_params = default_order_params(&test, "alice");
@@ -453,13 +454,22 @@ mod local_orders {
             order_book::state::OrderStatus::Completed
         );
 
-        // Now try to fill it again
+        // Verify order ata is closed
+        let (order_account, _) = test.get_native_order_account(&order_id)?;
+        let order_token_in_ata =
+        get_associated_token_address(&order_account, &test.get_mint("token-in-spl-6"));
+        let acct = test.ctx.svm.get_account(&order_token_in_ata).unwrap();
+
+        assert_eq!(acct.lamports, 0, "closed ATA must have 0 lamports");
+        assert!(acct.data.is_empty(), "closed ATA must have no data");
+
+        // Now try to fill it again (with an closed order ata)
         let fill_params = default_fill_params(&test);
         let ix = test.create_fill_native_order_ix(&solver.pubkey(), order_id, &fill_params)?;
-
+        
         test.ctx
             .execute_instruction(ix, &[&solver])?
-            .assert_anchor_error(&format!("{:?}", OrderBookError::OrderNotFillable));
+            .assert_anchor_error("AccountNotInitialized");
 
         Ok(())
     }

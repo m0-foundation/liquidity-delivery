@@ -4,7 +4,7 @@ use crate::{
     state::{
         ForeignOrder, GLOBAL_SEED, NativeOrder, ORDER_SEED_PREFIX, Order, 
         OrderBookGlobal, OrderData, OrderStatus, OrderType, compute_order_id
-    }, utils::{transfer_tokens, transfer_tokens_from_program}
+    }, utils::{transfer_tokens, transfer_tokens_from_program, close_order_token_account}
 };
 use anchor_lang::prelude::*;
 use anchor_spl::{
@@ -44,6 +44,10 @@ pub struct OrderCompleted {
 #[derive(Accounts)]
 #[instruction(order_id: [u8; 32], order_data: OrderData, fill_params: FillParams)]
 pub struct FillNativeOrder<'info> {
+    /// CHECK: The sender of the order, we don't read any data from here
+    #[account(mut)]
+    pub sender: UncheckedAccount<'info>,
+
     #[account(mut)]
     pub solver: Signer<'info>,
 
@@ -92,6 +96,7 @@ pub struct FillNativeOrder<'info> {
         mut,
         seeds = [ORDER_SEED_PREFIX, &order_id],
         bump = order.bump,
+        constraint = order.data.sender == sender.key() @ OrderBookError::NotAuthorized,
     )]
     pub order: Account<'info, Order::<NativeOrder>>,
 
@@ -233,6 +238,17 @@ impl FillNativeOrder<'_> {
 
         // If the order is fully filled, emit an order completed event
         if full_fill {
+
+            // Close ATA (rent back to sender)
+            close_order_token_account(
+                &ctx.accounts.token_in_program,
+                &ctx.accounts.order_token_in_ata,
+                &ctx.accounts.sender.to_account_info(),
+                &ctx.accounts.order.to_account_info(),
+                order_id,
+                ctx.accounts.order.bump,
+            )?;
+
             emit_cpi!(OrderCompleted { order_id });
         }
 

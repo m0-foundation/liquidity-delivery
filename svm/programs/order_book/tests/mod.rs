@@ -377,6 +377,7 @@ impl OrderBookTest {
         let solver_token_in_ata = get_associated_token_address(solver, &token_in_mint);
 
         Ok(order_book::accounts::FillNativeOrder {
+            sender: native_order_data.data.sender,
             program: order_book::ID,
             event_authority: self.get_event_authority()?,
             solver: *solver,
@@ -416,6 +417,7 @@ impl OrderBookTest {
         let solver_token_in_ata = get_associated_token_address(solver, &token_in_mint);
 
         Ok(order_book::accounts::FillNativeOrder {
+            sender: Pubkey::new_from_array(order_data.sender),
             program: order_book::ID,
             event_authority: self.get_event_authority()?,
             solver: *solver,
@@ -560,6 +562,7 @@ impl OrderBookTest {
         let order_token_in_ata = get_associated_token_address(&order_account, &token_in_mint);
 
         Ok(order_book::accounts::ReportOrderFill {
+            sender: native_order_data.data.sender,
             program: order_book::ID,
             event_authority: self.get_event_authority()?,
             relayer: *relayer,

@@ -3,7 +3,7 @@ use crate::{
     state::{
         NativeOrder, Order, OrderBookGlobal, OrderStatus, OrderType, GLOBAL_SEED, ORDER_SEED_PREFIX,
     },
-    utils::transfer_tokens_from_program,
+    utils::{transfer_tokens_from_program, close_order_token_account},
 };
 use anchor_lang::prelude::*;
 use anchor_spl::{
@@ -24,6 +24,11 @@ pub struct FillReport {
 #[derive(Accounts)]
 #[instruction(fill_report: FillReport)]
 pub struct ReportOrderFill<'info> {
+
+    /// CHECK: The original sender of the order, we don't read any data from here
+    #[account(mut)]
+    pub sender: UncheckedAccount<'info>,
+
     #[account(mut)]
     pub relayer: Signer<'info>,
 
@@ -40,6 +45,7 @@ pub struct ReportOrderFill<'info> {
         mut,
         seeds = [ORDER_SEED_PREFIX, fill_report.order_id.as_ref()],
         bump = order.bump,
+        constraint = order.data.sender == sender.key() @ OrderBookError::NotAuthorized,
     )]
     pub order: Account<'info, Order::<NativeOrder>>,
 
@@ -152,6 +158,17 @@ impl ReportOrderFill<'_> {
             ]],
             &ctx.accounts.token_in_program,
         )?;
+
+        if full_fill {
+            close_order_token_account(
+                &ctx.accounts.token_in_program,
+                &ctx.accounts.order_token_in_ata,
+                &ctx.accounts.sender.to_account_info(),
+                &ctx.accounts.order.to_account_info(),
+                fill_report.order_id,
+                ctx.accounts.order.bump,
+            )?;
+        }
 
         // Emit an event for the fill report
         emit_cpi!(FillReported {

@@ -121,7 +121,7 @@ mod local_orders {
     }
 
     #[test]
-    fn test_claim_refund_order_completed_reverts() -> Result<(), Box<dyn Error>> {
+    fn test_claim_refund_order_filled_reverts() -> Result<(), Box<dyn Error>> {
         let mut test = OrderBookTest::new()?;
         test.initialize()?;
 
@@ -139,12 +139,13 @@ mod local_orders {
             order_book::state::OrderStatus::Completed
         );
 
-        // Try to claim refund on completed order
+        // Try to claim refund on completed order (with a closed order ata)
         let ix = test.create_claim_refund_ix(&test.get_user("alice").pubkey(), order_id)?;
-
+        
+        // order ata is closed, so we expect AccountNotInitialized
         test.ctx
             .execute_instruction(ix, &[&test.get_user("alice")])?
-            .assert_anchor_error(&format!("{:?}", OrderBookError::InvalidOrderStatus));
+            .assert_anchor_error("AccountNotInitialized");
 
         Ok(())
     }
@@ -360,6 +361,7 @@ mod local_orders {
 
         // Verify Alice's balance increased (not Bob's)
         let alice_balance_after = test.get_token_balance(&alice_token_in_ata)?;
+        println!("Alice balance before: {}, after: {}", alice_balance_before, alice_balance_after);
         assert_eq!(
             alice_balance_after - alice_balance_before,
             1_000_000,
@@ -513,20 +515,49 @@ mod xchain_orders {
         let (_, dest_data) = test.get_destination_account(DEST_CHAIN_ID)?;
         test.warp_forward(200 + dest_data.effective_finality_buffer(test.current_time()));
 
+        // --- before claim_refund ---
+        let alice = test.get_user("alice");
+        let alice_lamports_before = test
+            .ctx
+            .svm
+            .get_account(&alice.pubkey())
+            .map(|a| a.lamports)
+            .unwrap_or(0);
+
         // Claim refund
         test.claim_refund("alice", order_id)?;
 
         // Verify balance increased by full amount
         let alice_balance_after = test.get_token_balance(&alice_token_in_ata)?;
+        let alice_lamports_after = test
+            .ctx
+            .svm
+            .get_account(&alice.pubkey())
+            .map(|a| a.lamports)
+            .unwrap_or(0);
+
+        assert!(
+            alice_lamports_after > alice_lamports_before,
+            "expected Alice lamports to increase from ATA close; before={}, after={}",
+            alice_lamports_before,
+            alice_lamports_after
+        );
 
         assert_eq!(
             alice_balance_after - alice_balance_before,
             1_000_000,
             "Alice should receive full refund"
         );
+        
+        let (order_account, order_data) = test.get_native_order_account(&order_id)?;
+        let order_token_in_ata =
+        get_associated_token_address(&order_account, &test.get_mint("token-in-spl-6"));
+        let acct = test.ctx.svm.get_account(&order_token_in_ata).unwrap();
+
+        assert_eq!(acct.lamports, 0, "closed ATA must have 0 lamports");
+        assert!(acct.data.is_empty(), "closed ATA must have no data");
 
         // Verify order status is Completed
-        let (_, order_data) = test.get_native_order_account(&order_id)?;
         assert_eq!(
             order_data.data.status,
             order_book::state::OrderStatus::Completed
@@ -555,19 +586,50 @@ mod xchain_orders {
         let (_, dest_data) = test.get_destination_account(DEST_CHAIN_ID)?;
         test.warp_forward(10 + dest_data.effective_finality_buffer(test.current_time()));
 
+        // --- before claim_refund ---
+        let alice = test.get_user("alice");
+        let alice_lamports_before = test
+            .ctx
+            .svm
+            .get_account(&alice.pubkey())
+            .map(|a| a.lamports)
+            .unwrap_or(0);
+
         // Claim refund
         test.claim_refund("alice", order_id)?;
 
-        // Verify balance increased
+        // Verify balance increased by full amount
         let alice_balance_after = test.get_token_balance(&alice_token_in_ata)?;
+        let alice_lamports_after = test
+            .ctx
+            .svm
+            .get_account(&alice.pubkey())
+            .map(|a| a.lamports)
+            .unwrap_or(0);
+
+        assert!(
+            alice_lamports_after > alice_lamports_before,
+            "expected Alice lamports to increase from ATA close; before={}, after={}",
+            alice_lamports_before,
+            alice_lamports_after
+        );
+
+        // Verify balance increased
         assert_eq!(
             alice_balance_after - alice_balance_before,
             1_000_000,
             "Alice should receive full refund"
         );
 
+        let (order_account, order_data) = test.get_native_order_account(&order_id)?;
+        let order_token_in_ata =
+        get_associated_token_address(&order_account, &test.get_mint("token-in-spl-6"));
+        let acct = test.ctx.svm.get_account(&order_token_in_ata).unwrap();
+
+        assert_eq!(acct.lamports, 0, "closed ATA must have 0 lamports");
+        assert!(acct.data.is_empty(), "closed ATA must have no data");
+
         // Verify order status is Completed
-        let (_, order_data) = test.get_native_order_account(&order_id)?;
         assert_eq!(
             order_data.data.status,
             order_book::state::OrderStatus::Completed
