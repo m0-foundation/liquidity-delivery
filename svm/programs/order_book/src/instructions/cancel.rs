@@ -113,10 +113,18 @@ impl CancelNativeOrder<'_> {
             return err!(OrderBookError::InvalidOrderStatus);
         }
 
+        let current_timestamp = Clock::get()?.unix_timestamp as u64;
+
+        // Validate the order created_at time is not in the future
+        require!(
+            current_timestamp >= order.created_at,
+            OrderBookError::InvalidCreatedAtTimestamp
+        );
+
         // Validate the signer is either sender or recipient
         // if the fill deadline has not yet passed
         require!(
-            Clock::get()?.unix_timestamp as u64 > order.fill_deadline ||
+            current_timestamp > order.fill_deadline ||
             self.signer.key() == order.sender || // can use sender here because it's a native order
             self.signer.key() == Pubkey::new_from_array(order.recipient),
             OrderBookError::NotAuthorized
@@ -219,21 +227,22 @@ impl<'info> CancelForeignOrder<'info> {
             OrderBookError::InvalidOrderId
         );
 
-        // Validate the order created_at time is not in the future
-        require!(
-            order_data.created_at <= Clock::get()?.unix_timestamp as u64,
-            OrderBookError::InvalidCreatedAtTimestamp
-        );
-
         // Validate the order has a valid status for cancellation
         require!(
             order.status == OrderStatus::Created || order.status == OrderStatus::DoesNotExist, 
             OrderBookError::InvalidOrderStatus
         );
 
+        let current_timestamp = Clock::get()?.unix_timestamp as u64;
+        // Validate the order created_at time is not in the future
+        require!(
+            current_timestamp >= order_data.created_at,
+            OrderBookError::InvalidCreatedAtTimestamp
+        );
+
         // Validate the signer is recipient if the fill deadline has not yet passed
         require!(
-            Clock::get()?.unix_timestamp as u64 > order_data.fill_deadline ||
+            current_timestamp > order_data.fill_deadline ||
             self.signer.key() == Pubkey::new_from_array(order_data.recipient),
             OrderBookError::NotAuthorized
         );

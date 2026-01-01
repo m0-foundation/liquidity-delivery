@@ -358,9 +358,9 @@ impl<'info> FillForeignOrder<'info> {
         // Validate the params
         validate_params(order_id, order_data, fill_params, &self.solver.key())?;
 
-        // Validate the order is in a fillable state
+        // Validate the order status is fillable (i.e. DoesNotExist or Created, if already partially filled)
         require!(
-            self.order.data.amount_out_filled < order_data.amount_out,
+            self.order.data.status == OrderStatus::DoesNotExist || self.order.data.status == OrderStatus::Created,
             OrderBookError::OrderNotFillable
         );
 
@@ -375,7 +375,7 @@ impl<'info> FillForeignOrder<'info> {
         fill_params: FillParams,
     ) -> Result<()> {
         // If this is a new order, initialize it
-        if ctx.accounts.order.data.amount_out_filled == 0 {
+        if ctx.accounts.order.data.status == OrderStatus::DoesNotExist {
             ctx.accounts.order.order_type = OrderType::Foreign;
             ctx.accounts.order.bump = ctx.bumps.order;
             ctx.accounts.order.data = ForeignOrder {
@@ -400,6 +400,9 @@ impl<'info> FillForeignOrder<'info> {
         require!(amount_out_remaining > 0, OrderBookError::OrderFilled);
         let full_fill: bool = fill_params.amount_out_to_fill as u128 >= amount_out_remaining;
         let (amount_in_to_release, amount_out_to_fill): (u64, u64) = if full_fill {
+            // Set the order status to completed
+            order.status = OrderStatus::Completed;
+
             // Set the fill amount out to the remaining amount
             // Set the amount in to release to the remaining amount in
             (
@@ -487,11 +490,17 @@ fn validate_params(
         OrderBookError::InvalidOrderId
     );
 
-    // Validate the order has not expired
     let current_timestamp = Clock::get()?.unix_timestamp as u64;
+    // Validate the order has not expired
     require!(
         current_timestamp <= order_data.fill_deadline as u64,
         OrderBookError::OrderExpired
+    );
+
+    // Validate the created_at timestamp is not in the future
+    require!(
+        current_timestamp >= order_data.created_at,
+        OrderBookError::InvalidCreatedAtTimestamp
     );
 
     // Validate the order is for the current version
