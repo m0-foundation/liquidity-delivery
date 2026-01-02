@@ -63,6 +63,7 @@ pub struct CancelNativeOrder<'info> {
 
     /// CHECK: The sender of the order, we don't read any data from here
     /// This does not have to be a signer, anyone can claim refunds on behalf of the sender
+    #[account(address = order.data.sender @ OrderBookError::InvalidSender)]
     pub sender: UncheckedAccount<'info>,
 
     #[account(
@@ -182,6 +183,7 @@ pub struct CancelForeignOrder {
     pub signer: Signer<'info>,
 
     #[account(
+        mut,
         seeds = [GLOBAL_SEED],
         bump = global_account.bump,
         constraint = order_data.dest_chain_id == global_account.chain_id @ OrderBookError::InvalidDestChainId,
