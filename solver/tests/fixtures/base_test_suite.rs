@@ -78,6 +78,7 @@ impl BaseTestSuite {
         for (i, &chain_id) in evm_chains.iter().enumerate() {
             let anvil = alloy::node_bindings::Anvil::new()
                 .block_time_f64(0.1)
+                .arg("--prune-history")
                 .chain_id(chain_id as u64)
                 .try_spawn()
                 .expect("failed to spawn anvil node");
