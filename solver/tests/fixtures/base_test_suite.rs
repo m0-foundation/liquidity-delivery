@@ -230,27 +230,37 @@ impl BaseTestSuite {
 
         // Start quoter API if requested
         let (quoter_process, quoter_port) = if start_quoter_api {
-            // Generate unique port based on timestamp to avoid conflicts
-            let rand_int = (time::SystemTime::now()
-                .duration_since(time::UNIX_EPOCH)
-                .unwrap()
-                .as_millis()
-                % 6000) as u16;
-            let port = 3000 + rand_int;
-            let grpc_port = 50051 + rand_int;
+            let port = portpicker::pick_unused_port().expect("No free ports available");
+            let grpc_port = portpicker::pick_unused_port().expect("No free ports available");
 
             let child = Command::new("cargo")
                 .args(["run", "--bin", "quoter"])
                 .current_dir("../quoter")
                 .env("API_PORT", port.to_string())
                 .env("GRPC_PORT", grpc_port.to_string())
+                .env("QUOTE_TIMEOUT_MS", "1500")
                 .stdout(std::process::Stdio::null())
                 .stderr(std::process::Stdio::null())
                 .spawn()
                 .expect("Failed to start quoter process");
 
-            // Wait for quoter to start
-            sleep(Duration::from_secs(1)).await;
+            // Poll quoter health endpoint until it's ready
+            let health_url = format!("http://localhost:{}/health", port);
+            let start_time = std::time::Instant::now();
+
+            loop {
+                if start_time.elapsed() > Duration::from_secs(60) {
+                    panic!("Quoter failed to start");
+                }
+
+                if let Ok(response) = reqwest::get(&health_url).await {
+                    if response.status().is_success() {
+                        break;
+                    }
+                }
+
+                sleep(Duration::from_millis(100)).await;
+            }
 
             config.quoter_grpc_url = format!("http://localhost:{}", grpc_port);
 

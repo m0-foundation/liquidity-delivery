@@ -41,13 +41,11 @@ async fn test_quote_invalid_asset(ctx: &LiteTestSuite) {
 #[test_context(LiteTestSuite)]
 #[tokio::test]
 async fn test_quote_success(ctx: &LiteTestSuite) {
-    let token_addr = ctx.chains[0].tokens[0].address.to_string();
-
     let request = QuoteRequest {
         input_chain_id: 1,
         output_chain_id: 8453,
-        input_token: token_addr.clone(),
-        output_token: token_addr,
+        input_token: "0x437cc33344a0B27A429f795ff6B469C72698B291".to_string(),
+        output_token: "0x437cc33344a0B27A429f795ff6B469C72698B291".to_string(),
         amount_in: 100000,
     };
 

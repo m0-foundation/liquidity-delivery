@@ -25,34 +25,28 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         slog_async::Async::new(drain).build().fuse()
     };
 
+    let quote_timeout_ms: u64 = std::env::var("QUOTE_TIMEOUT_MS")
+        .ok()
+        .and_then(|v| v.parse().ok())
+        .unwrap_or(500);
+
     let logger = Logger::root(
         drain,
         slog::o!(
             "timestamp" => slog::FnValue(|_| {
                 chrono::Utc::now().to_rfc3339_opts(chrono::SecondsFormat::Millis, true)
             }),
-            "environment" => environment.clone()
+            "environment" => environment.clone(),
+            "quote_timeout" => quote_timeout_ms
         ),
     );
 
-    let quote_timeout_ms: u64 = std::env::var("QUOTE_TIMEOUT_MS")
-        .ok()
-        .and_then(|v| v.parse().ok())
-        .unwrap_or(500);
-
-    info!(logger, "Starting quoter"; "environment" => &environment, "quote_timeout_ms" => quote_timeout_ms);
-
     let grpc_service = QuoteGrpcService::new(quote_timeout_ms, logger.clone());
-
     let grpc_addr = format!(
         "[::1]:{}",
         env::var("GRPC_PORT").unwrap_or_else(|_| "50051".to_string())
     )
     .parse()?;
-    let api_addr = format!(
-        "0.0.0.0:{}",
-        env::var("API_PORT").unwrap_or_else(|_| "3000".to_string())
-    );
 
     // Spawn gRPC server
     let grpc_service_clone = grpc_service.clone();
@@ -68,6 +62,11 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         grpc_service: grpc_service.clone(),
         logger: logger.clone(),
     };
+
+    let api_addr = format!(
+        "0.0.0.0:{}",
+        env::var("API_PORT").unwrap_or_else(|_| "3000".to_string())
+    );
 
     let app = create_router(api_state);
     let listener = tokio::net::TcpListener::bind(api_addr.clone()).await?;

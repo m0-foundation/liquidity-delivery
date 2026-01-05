@@ -3,7 +3,7 @@ use std::collections::HashMap;
 use std::pin::Pin;
 use std::sync::Arc;
 use tokio::sync::{broadcast, mpsc, RwLock};
-use tokio::time::{timeout, Duration};
+use tokio::time::Duration;
 use tokio_stream::{wrappers::ReceiverStream, Stream, StreamExt};
 use tonic::{Request, Response, Status};
 use uuid::Uuid;
@@ -57,7 +57,6 @@ impl QuoteGrpcService {
             amount_in: request.amount_in,
         };
 
-        // Create a channel to collect responses for this request
         let (response_tx, mut response_rx) = mpsc::channel::<QuoteResponseProto>(100);
 
         {
@@ -68,28 +67,19 @@ impl QuoteGrpcService {
         // Broadcast the request to all subscribers
         let _ = self.request_sender.send(proto_request);
 
-        let responses: Vec<QuoteResponse> =
-            match timeout(Duration::from_millis(self.quote_timeout_ms), async {
-                let mut collected = Vec::new();
-                while let Some(response) = response_rx.recv().await {
-                    collected.push(response.into());
-                }
-                collected
-            })
-            .await
-            {
-                Ok(collected) => collected,
-                Err(_) => {
-                    // Timeout occurred, collect whatever we have
-                    let mut collected = Vec::new();
-                    while let Ok(response) = response_rx.try_recv() {
-                        collected.push(response.into());
-                    }
-                    collected
-                }
-            };
+        let mut responses = Vec::new();
+        let deadline = tokio::time::Instant::now() + Duration::from_millis(self.quote_timeout_ms);
 
-        // Clean up the collector
+        loop {
+            match tokio::time::timeout_at(deadline, response_rx.recv()).await {
+                Ok(Some(response)) => {
+                    responses.push(response.into());
+                }
+                // Channel closed or timeout
+                Ok(None) | Err(_) => break,
+            }
+        }
+
         {
             let mut collectors = self.response_collectors.write().await;
             collectors.remove(&request_id);
@@ -145,15 +135,10 @@ impl QuoteService for QuoteGrpcService {
                         }
                     }
                     Err(broadcast::error::RecvError::Lagged(_)) => {
-                        slog::warn!(
-                            logger,
-                            "Client lagged behind, some requests may have been missed"
-                        );
+                        slog::warn!(logger, "Client lagged behind");
                         continue;
                     }
-                    Err(broadcast::error::RecvError::Closed) => {
-                        break;
-                    }
+                    Err(broadcast::error::RecvError::Closed) => break,
                 }
             }
         });
