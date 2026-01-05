@@ -2,6 +2,7 @@
 pragma solidity 0.8.33;
 
 import { TypeConverter } from "../../../lib/common/src/libs/TypeConverter.sol";
+import { PausableUpgradeable } from "../../../lib/common/lib/openzeppelin-contracts-upgradeable/contracts/utils/PausableUpgradeable.sol";
 
 import { OrderBookTestBase } from "./OrderBookTestBase.t.sol";
 import { IOrderBook } from "../../../src/interfaces/IOrderBook.sol";
@@ -1018,5 +1019,74 @@ contract FillOrderTest is OrderBookTestBase {
         // Check order status
         IOrderBook.Order memory updatedOrder = orderBook.getOrder(orderId);
         assertEq(uint8(updatedOrder.status), uint8(IOrderBook.OrderStatus.Completed), "order should be completed");
+    }
+
+    function test_whenPaused_reverts() public {
+        // Create a local order before pausing
+        params.destChainId = CHAIN_ID;
+        bytes32 orderId = _placeOrder(users["alice"], params);
+
+        IOrderBook.Order memory order = orderBook.getOrder(orderId);
+
+        // Pause the contract
+        vm.prank(pauser);
+        orderBook.pause();
+
+        // Attempt to fill
+        vm.prank(params.solver.toAddress());
+        vm.expectRevert(abi.encodeWithSelector(PausableUpgradeable.EnforcedPause.selector));
+        orderBook.fillOrder(
+            orderId,
+            IOrderBook.OrderData({
+                version: order.version,
+                originChainId: CHAIN_ID,
+                sender: order.sender.toBytes32(),
+                nonce: order.nonce,
+                destChainId: order.destChainId,
+                fillDeadline: order.fillDeadline,
+                amountIn: order.amountIn,
+                amountOut: order.amountOut,
+                tokenIn: order.tokenIn.toBytes32(),
+                tokenOut: order.tokenOut,
+                recipient: order.recipient,
+                solver: order.solver
+            }),
+            IOrderBook.FillParams({ amountOutToFill: order.amountOut, originRecipient: params.solver })
+        );
+    }
+
+    function test_fillOrderWithMessageData_whenPaused_reverts() public {
+        // Create a local order before pausing
+        params.destChainId = CHAIN_ID;
+        bytes32 orderId = _placeOrder(users["alice"], params);
+
+        IOrderBook.Order memory order = orderBook.getOrder(orderId);
+
+        // Pause the contract
+        vm.prank(pauser);
+        orderBook.pause();
+
+        // Attempt to fill with messageData
+        vm.prank(params.solver.toAddress());
+        vm.expectRevert(abi.encodeWithSelector(PausableUpgradeable.EnforcedPause.selector));
+        orderBook.fillOrder(
+            orderId,
+            IOrderBook.OrderData({
+                version: order.version,
+                originChainId: CHAIN_ID,
+                sender: order.sender.toBytes32(),
+                nonce: order.nonce,
+                destChainId: order.destChainId,
+                fillDeadline: order.fillDeadline,
+                amountIn: order.amountIn,
+                amountOut: order.amountOut,
+                tokenIn: order.tokenIn.toBytes32(),
+                tokenOut: order.tokenOut,
+                recipient: order.recipient,
+                solver: order.solver
+            }),
+            IOrderBook.FillParams({ amountOutToFill: order.amountOut, originRecipient: params.solver }),
+            new bytes(0)
+        );
     }
 }
