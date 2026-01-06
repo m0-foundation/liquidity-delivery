@@ -176,6 +176,7 @@ contract OrderBook is IOrderBook, OrderBookStorageLayout, AccessControlUpgradeab
         if (orderParams_.amountIn == 0) revert AmountInZero();
         if (orderParams_.amountOut == 0) revert AmountOutZero();
         if (orderParams_.recipient == bytes32(0)) revert InvalidRecipient();
+        if (orderParams_.solver == orderParams_.recipient) revert InvalidSolver();
 
         // Destination chain must either be the current chain or a supported destination
         if (!isDestinationSupported(orderParams_.destChainId)) revert InvalidDestinationChain();

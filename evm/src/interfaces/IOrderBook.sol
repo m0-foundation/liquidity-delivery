@@ -86,6 +86,7 @@ interface IOrderBook {
     error InvalidOrderVersion();
     error InvalidOriginChain();
     error InvalidRecipient();
+    error InvalidSolver();
     error InvalidReport();
     error InvalidTimestamp();
     error NotAuthorized();
