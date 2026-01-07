@@ -45,7 +45,7 @@ use std::error::Error;
 // [X] given the order status is CancelRequested
 //   [X] it still processes the fill (CancelRequested orders can be filled)
 // [X] given the program is paused
-//   [X] it reverts with a ProgramPaused error
+//   [X] it completes successfully
 
 fn default_fill_report(
     test: &OrderBookTest,
@@ -937,7 +937,7 @@ fn test_report_fill_paused_reverts() -> Result<(), Box<dyn Error>> {
 
     test.ctx
         .execute_instruction(ix, &[&solver, &messenger_authority])?
-        .assert_anchor_error(&format!("{:?}", OrderBookError::ProgramPaused));
+        .assert_success();
 
     Ok(())
 }

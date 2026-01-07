@@ -594,7 +594,7 @@ contract OrderBook is
     /* ========== Receiving Crosschain Reports ========== */
 
     /// @inheritdoc IOrderBook
-    function reportFill(FillReport calldata report_) external override whenNotPaused {
+    function reportFill(FillReport calldata report_) external override {
         OrderBookStorageStruct storage $ = _getOrderBookStorageLocation();
         Order storage order = $.orders[report_.orderId];
 
@@ -624,7 +624,7 @@ contract OrderBook is
     }
 
     /// @inheritdoc IOrderBook
-    function reportCancel(CancelReport calldata report_) external override whenNotPaused {
+    function reportCancel(CancelReport calldata report_) external override {
         Order storage order = _getOrderBookStorageLocation().orders[report_.orderId];
 
         // Validate the cancel report and sender

@@ -11,6 +11,8 @@ contract ReportCancelTest is OrderBookTestBase {
     using TypeConverter for *;
 
     // Test cases
+    // [X] given the contract is paused
+    //   [X] it completes successfully
     // [X] given the messenger is not the caller
     //   [X] it reverts with a NotAuthorized error
     // [X] given the order does not exist
@@ -32,8 +34,6 @@ contract ReportCancelTest is OrderBookTestBase {
     //     [X] it transfers remaining amountIn to order sender (amountIn - amountInReleased)
     //     [X] it sets order status to Cancelled
     //     [X] it emits RefundClaimed event
-    // [X] given the contract is paused
-    //   [X] it reverts with an EnforcedPause error
 
     function setUp() public override {
         super.setUp();
@@ -290,7 +290,7 @@ contract ReportCancelTest is OrderBookTestBase {
         _test_activeOrderPartialFills_success();
     }
 
-    function test_whenPaused_reverts() public {
+    function test_whenPaused_success() public {
         bytes32 orderId = _getOrderIdFromParams(users["alice"], 0, params);
 
         // Pause the contract
@@ -298,7 +298,6 @@ contract ReportCancelTest is OrderBookTestBase {
         orderBook.pause();
 
         vm.prank(address(messenger));
-        vm.expectRevert(abi.encodeWithSelector(PausableUpgradeable.EnforcedPause.selector));
         orderBook.reportCancel(
             IOrderBook.CancelReport({
                 orderId: orderId,

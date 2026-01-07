@@ -304,8 +304,7 @@ pub struct ReportOrderCancel<'info> {
 
     #[account(
         seeds = [GLOBAL_SEED],
-        bump = global_account.bump,
-        constraint = !global_account.paused @ OrderBookError::ProgramPaused,
+        bump = global_account.bump
     )]
     pub global_account: Account<'info, OrderBookGlobal>,
 

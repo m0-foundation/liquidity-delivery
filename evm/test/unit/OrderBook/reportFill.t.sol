@@ -12,7 +12,7 @@ contract ReportFillTest is OrderBookTestBase {
 
     // Test cases
     // [X] given the contract is paused
-    //    [X] it reverts with an EnforcedPause error
+    //   [X] it completes successfully
     // [X] given the messenger is not the caller
     //   [X] it reverts with a NotAuthorized error
     // [X] given the order does not exist
@@ -40,13 +40,12 @@ contract ReportFillTest is OrderBookTestBase {
         _placeOrder(users["alice"], params);
     }
 
-    function test_whenPaused_reverts() public {
+    function test_whenPaused_success() public {
         vm.prank(pauser);
         orderBook.pause();
 
         bytes32 orderId = _getOrderIdFromParams(users["alice"], 0, params);
 
-        vm.expectRevert(abi.encodeWithSelector(PausableUpgradeable.EnforcedPause.selector));
         vm.prank(address(messenger));
         orderBook.reportFill(
             IOrderBook.FillReport({
