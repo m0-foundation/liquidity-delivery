@@ -1126,6 +1126,50 @@ impl OrderBookTest {
         Ok(())
     }
 
+    fn create_close_order_token_account_ix(
+        &self,
+        payer: &Pubkey,
+        order_id: [u8; 32],
+    ) -> Result<Instruction, Box<dyn Error>> {
+        let (order_account, native_order_data) = self.get_native_order_account(&order_id)?;
+        let token_in_mint = native_order_data.data.token_in;
+        let order_token_in_ata = get_associated_token_address(&order_account, &token_in_mint);
+
+        let ix = self
+            .ctx
+            .program()
+            .accounts(
+                order_book::accounts::CloseOrderTokenAccount {
+                    payer: *payer,
+                    order: order_account,
+                    token_in_mint,
+                    order_token_in_ata,
+                    token_in_program: anchor_spl::token::ID,
+                },
+            )
+            .args(order_book::instruction::CloseOrderTokenAccount {
+                order_id,
+            })
+            .instruction()?;
+
+        Ok(ix)
+    }
+
+    fn close_order_token_account(
+        &mut self,
+        payer_name: &str,
+        order_id: [u8; 32],
+    ) -> Result<(), Box<dyn Error>> {
+        let payer = self.get_user(payer_name);
+        let ix = self.create_close_order_token_account_ix(&payer.pubkey(), order_id)?;
+
+        self.ctx
+            .execute_instruction(ix, &[&payer])?
+            .assert_success();
+
+        Ok(())
+    }
+
     // Convenience functions for common test actions can go here
 
     fn warp_forward(&mut self, seconds: u64) {
