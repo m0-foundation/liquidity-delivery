@@ -81,7 +81,7 @@ impl CloseOrderTokenAccount<'_> {
         // Verify order is in a finalized state (Completed or Cancelled)
         require!(
             order.status == OrderStatus::Completed || order.status == OrderStatus::Cancelled,
-            OrderBookError::OrderNotFinalized
+            OrderBookError::InvalidOrderStatus
         );
 
         // If token account has a non-zero balance (e.g. from griefing donations),

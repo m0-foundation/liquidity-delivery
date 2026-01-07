@@ -60,10 +60,10 @@ pub enum OrderBookError {
     InvalidCreatedAtTimestamp,
     #[msg("Sender address does not match order sender")]
     InvalidSender,
-    #[msg("Invalid payer - does not match order payer")]
+    #[msg("Payser address does not match order payer")]
     InvalidPayer,
-    #[msg("Order not finalized - must be Completed or Cancelled to close token account")]
-    OrderNotFinalized,
     #[msg("Token account has non-zero balance - cannot close")]
     TokenAccountNotEmpty,
+    #[msg("Program is paused")]
+    ProgramPaused,
 }

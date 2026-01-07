@@ -3,6 +3,7 @@ pragma solidity 0.8.33;
 
 import { VmSafe } from "../../../lib/forge-std/src/Vm.sol";
 import { TypeConverter } from "../../../lib/common/src/libs/TypeConverter.sol";
+import { PausableUpgradeable } from "../../../lib/common/lib/openzeppelin-contracts-upgradeable/contracts/utils/PausableUpgradeable.sol";
 
 import { IOrderBook } from "../../../src/interfaces/IOrderBook.sol";
 
@@ -13,6 +14,8 @@ contract CancelOrderForTest is OrderBookTestBase {
     using TypeConverter for *;
 
     // Test cases
+    // [X] given the contract is paused
+    //    [X] it reverts with an EnforcedPause error
     // [X] given the signature is invalid (not from recipient)
     //   [X] it reverts
     // [X] given the signature is a valid standard ECDSA signature from recipient
@@ -105,6 +108,29 @@ contract CancelOrderForTest is OrderBookTestBase {
 
     /* ========== Tests ========= */
 
+    function test_whenPaused_localOrder_reverts() public {
+        vm.prank(pauser);
+        orderBook.pause();
+
+        IOrderBook.Order memory order = orderBook.getOrder(orderId);
+        IOrderBook.OrderData memory orderData = _getOrderDataFromOrder(orderId, order);
+
+        bytes memory signature = _signStandardECDSA(recipient, orderId);
+
+        vm.expectRevert(abi.encodeWithSelector(PausableUpgradeable.EnforcedPause.selector));
+        orderBook.cancelOrderFor{ value: 0 }(orderId, orderData, signature);
+    }
+
+    function test_whenPaused_xchainOrder_reverts() public {
+        vm.prank(pauser);
+        orderBook.pause();
+
+        bytes memory signature = _signStandardECDSA(recipient, xchainOrderId);
+
+        vm.expectRevert(abi.encodeWithSelector(PausableUpgradeable.EnforcedPause.selector));
+        orderBook.cancelOrderFor{ value: 1 }(xchainOrderId, xchainOrderData, signature);
+    }
+
     function test_givenSignatureNotFromRecipient_reverts() public {
         IOrderBook.Order memory order = orderBook.getOrder(orderId);
         IOrderBook.OrderData memory orderData = _getOrderDataFromOrder(orderId, order);
@@ -112,7 +138,7 @@ contract CancelOrderForTest is OrderBookTestBase {
         bytes memory signature = _signStandardECDSA(vm.createWallet("attacker"), orderId);
 
         vm.expectRevert();
-        orderBook.cancelOrderFor(orderId, orderData, new bytes(0), signature);
+        orderBook.cancelOrderFor{ value: 0 }(orderId, orderData, signature);
     }
 
     function test_givenCompactECDSASignature_succeeds() public {
@@ -124,7 +150,7 @@ contract CancelOrderForTest is OrderBookTestBase {
         vm.expectEmit(true, false, false, false);
         emit IOrderBook.OrderCancelled(orderId);
 
-        orderBook.cancelOrderFor(orderId, orderData, new bytes(0), signature);
+        orderBook.cancelOrderFor{ value: 0 }(orderId, orderData, signature);
 
         IOrderBook.Order memory updatedOrder = orderBook.getOrder(orderId);
         assertEq(uint8(updatedOrder.status), uint8(IOrderBook.OrderStatus.Cancelled));
@@ -139,7 +165,7 @@ contract CancelOrderForTest is OrderBookTestBase {
         vm.expectEmit(true, false, false, false);
         emit IOrderBook.OrderCancelled(orderId);
 
-        orderBook.cancelOrderFor(orderId, orderData, new bytes(0), signature);
+        orderBook.cancelOrderFor{ value: 0 }(orderId, orderData, signature);
 
         IOrderBook.Order memory updatedOrder = orderBook.getOrder(orderId);
         assertEq(uint8(updatedOrder.status), uint8(IOrderBook.OrderStatus.Cancelled));
@@ -154,7 +180,7 @@ contract CancelOrderForTest is OrderBookTestBase {
         bytes memory signature = _signStandardECDSA(recipient, fakeOrderId);
 
         vm.expectRevert(abi.encodeWithSelector(IOrderBook.InvalidOrderStatus.selector));
-        orderBook.cancelOrderFor(fakeOrderId, orderData, new bytes(0), signature);
+        orderBook.cancelOrderFor{ value: 0 }(fakeOrderId, orderData, signature);
     }
 
     function test_givenOrderAlreadyCancelled_reverts() public {
@@ -163,12 +189,12 @@ contract CancelOrderForTest is OrderBookTestBase {
 
         // First, cancel the order (recipient can cancel directly)
         vm.prank(recipient.addr);
-        orderBook.cancelOrder(orderId, orderData, new bytes(0));
+        orderBook.cancelOrder{ value: 0 }(orderId, orderData);
 
         // Attempt to cancel again via cancelOrderFor
         bytes memory signature = _signStandardECDSA(recipient, orderId);
         vm.expectRevert(abi.encodeWithSelector(IOrderBook.InvalidOrderStatus.selector));
-        orderBook.cancelOrderFor(orderId, orderData, new bytes(0), signature);
+        orderBook.cancelOrderFor{ value: 0 }(orderId, orderData, signature);
     }
 
     function test_givenOrderAlreadyFilledLocal_reverts() public {
@@ -181,7 +207,7 @@ contract CancelOrderForTest is OrderBookTestBase {
         // Attempt to cancel
         bytes memory signature = _signStandardECDSA(recipient, orderId);
         vm.expectRevert(abi.encodeWithSelector(IOrderBook.InvalidOrderStatus.selector));
-        orderBook.cancelOrderFor(orderId, orderData, new bytes(0), signature);
+        orderBook.cancelOrderFor{ value: 0 }(orderId, orderData, signature);
     }
 
     function test_givenOrderAlreadyFilledXchain_reverts() public {
@@ -198,7 +224,7 @@ contract CancelOrderForTest is OrderBookTestBase {
         // Attempt to cancel
         bytes memory signature = _signStandardECDSA(recipient, xchainOrderId);
         vm.expectRevert(abi.encodeWithSelector(IOrderBook.InvalidOrderStatus.selector));
-        orderBook.cancelOrderFor(xchainOrderId, xchainOrderData, new bytes(0), signature);
+        orderBook.cancelOrderFor{ value: 1 }(xchainOrderId, xchainOrderData, signature);
     }
 
     function test_givenOrderIdMismatch_reverts() public {
@@ -211,7 +237,7 @@ contract CancelOrderForTest is OrderBookTestBase {
         bytes memory signature = _signStandardECDSA(recipient, wrongOrderId);
 
         vm.expectRevert(abi.encodeWithSelector(IOrderBook.OrderIdMismatch.selector));
-        orderBook.cancelOrderFor(wrongOrderId, orderData, new bytes(0), signature);
+        orderBook.cancelOrderFor{ value: 0 }(wrongOrderId, orderData, signature);
     }
 
     function test_givenCreatedAtInFuture_reverts() public {
@@ -225,7 +251,7 @@ contract CancelOrderForTest is OrderBookTestBase {
         bytes memory signature = _signStandardECDSA(recipient, futureOrderId);
 
         vm.expectRevert(abi.encodeWithSelector(IOrderBook.InvalidTimestamp.selector));
-        orderBook.cancelOrderFor(futureOrderId, orderData, new bytes(0), signature);
+        orderBook.cancelOrderFor{ value: 0 }(futureOrderId, orderData, signature);
     }
 
     function test_givenLocalOrder_success() public {
@@ -242,7 +268,7 @@ contract CancelOrderForTest is OrderBookTestBase {
 
         uint256 senderBalanceBefore = tokenIn.balanceOf(sender.addr);
 
-        orderBook.cancelOrderFor(orderId, orderData, new bytes(0), signature);
+        orderBook.cancelOrderFor{ value: 0 }(orderId, orderData, signature);
 
         uint256 senderBalanceAfter = tokenIn.balanceOf(sender.addr);
         assertEq(senderBalanceAfter - senderBalanceBefore, params.amountIn);
@@ -266,7 +292,7 @@ contract CancelOrderForTest is OrderBookTestBase {
         vm.expectEmit(true, false, false, false);
         emit IOrderBook.OrderCancelled(xchainOrderId);
 
-        orderBook.cancelOrderFor(xchainOrderId, xchainOrderData, new bytes(0), signature);
+        orderBook.cancelOrderFor{ value: 1 }(xchainOrderId, xchainOrderData, signature);
 
         IOrderBook.Order memory updatedOrder = orderBook.getOrder(xchainOrderId);
         assertEq(

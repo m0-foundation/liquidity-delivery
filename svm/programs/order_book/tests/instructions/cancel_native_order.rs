@@ -32,6 +32,8 @@ use std::error::Error;
 // [X] given all checks pass
 //   [X] it sets order status to Cancelled
 //   [X] it transfers remaining token_in to sender
+// [X] given the program is paused
+//   [X] it reverts with a ProgramPaused error
 
 mod local_orders {
     use super::*;
@@ -555,5 +557,29 @@ mod local_orders {
         Ok(())
     }
 
-    // NOTE: CloseOrderTokenAccount tests have been moved to close_order_token_account.rs
+    #[test]
+    fn test_cancel_native_order_paused_reverts() -> Result<(), Box<dyn Error>> {
+        let mut test = OrderBookTest::new()?;
+        test.initialize()?;
+
+        // Create an order before pausing
+        let order_params = default_order_params(&test);
+        let order_id = test.open_order("alice", "token-in-spl-6", &order_params)?;
+
+        // Pause the program
+        test.pause()?;
+
+        // Try to cancel the order while paused
+        let ix = test.create_cancel_native_order_ix(
+            &test.get_user("alice").pubkey(),
+            &test.get_user("alice").pubkey(),
+            order_id,
+        )?;
+
+        test.ctx
+            .execute_instruction(ix, &[&test.get_user("alice")])?
+            .assert_anchor_error(&format!("{:?}", OrderBookError::ProgramPaused));
+
+        Ok(())
+    }
 }

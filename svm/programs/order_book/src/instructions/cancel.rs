@@ -54,6 +54,11 @@ pub struct OrderCancelled {
     pub order_id: [u8; 32],
 }
 
+#[event]
+pub struct CancelReported {
+    pub order_id: [u8; 32],
+}
+
 // Instruction Contexts and Handlers
 #[event_cpi]
 #[derive(Accounts)]
@@ -69,6 +74,7 @@ pub struct CancelNativeOrder<'info> {
     #[account(
         seeds = [GLOBAL_SEED],
         bump = global_account.bump,
+        constraint = !global_account.paused @ OrderBookError::ProgramPaused,
     )]
     pub global_account: Account<'info, OrderBookGlobal>,
 
@@ -186,6 +192,7 @@ pub struct CancelForeignOrder {
         mut,
         seeds = [GLOBAL_SEED],
         bump = global_account.bump,
+        constraint = !global_account.paused @ OrderBookError::ProgramPaused,
         constraint = order_data.dest_chain_id == global_account.chain_id @ OrderBookError::InvalidDestChainId,
         constraint = order_data.origin_chain_id != global_account.chain_id @ OrderBookError::InvalidOriginChainId,
     )]
@@ -401,8 +408,8 @@ impl ReportOrderCancel<'_> {
             amount,
         });
 
-        // Emit an event for the fill report
-        emit_cpi!(OrderCancelled {
+        // Emit an event for the cancel report
+        emit_cpi!(CancelReported {
             order_id: cancel_report.order_id,
         });
 

@@ -13,7 +13,7 @@
 //! [X] given the order was cross-chain and reported filled
 //!   [X] it refunds ATA rent to the payer
 //! [X] given the order is not finalized (status = Created)
-//!   [X] it reverts with OrderNotFinalized
+//!   [X] it reverts with InvalidOrderStatus
 //! [X] given a wrong payer is provided
 //!   [X] it reverts
 //! [X] given a wrong sender is provided
@@ -412,7 +412,7 @@ fn test_close_fails_if_order_not_finalized() -> Result<(), Box<dyn Error>> {
 
     test.ctx
         .execute_instruction(ix, &[&test.get_user("alice")])?
-        .assert_anchor_error(&format!("{:?}", OrderBookError::OrderNotFinalized));
+        .assert_anchor_error(&format!("{:?}", OrderBookError::InvalidOrderStatus));
 
     Ok(())
 }

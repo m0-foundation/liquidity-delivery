@@ -3,6 +3,7 @@ pragma solidity 0.8.33;
 
 import { TypeConverter } from "../../../lib/common/src/libs/TypeConverter.sol";
 import { console } from "../../../lib/forge-std/src/console.sol";
+import { PausableUpgradeable } from "../../../lib/common/lib/openzeppelin-contracts-upgradeable/contracts/utils/PausableUpgradeable.sol";
 
 import { OrderBookTestBase } from "./OrderBookTestBase.t.sol";
 import { IOrderBook } from "../../../src/interfaces/IOrderBook.sol";
@@ -12,6 +13,8 @@ contract CancelOrderTest is OrderBookTestBase {
     using TypeConverter for *;
 
     // Test cases
+    // [X] given the contract is paused
+    //    [X] it reverts with an EnforcedPause error
     // [X] given the order does not exist
     //   [X] it reverts with an InvalidOrderStatus error
     // [X] given the order exists but already cancelled
@@ -38,6 +41,8 @@ contract CancelOrderTest is OrderBookTestBase {
     //     [X] it sends a CancelReport to the origin chain via messenger
     //     [X] it emits an OrderCancelled event
     //   [X] given the destination chain is the origin chain (i.e. local order)
+    //     [X] given the msg.value is not zero
+    //       [X] it reverts with an InvalidMsgValue error
     //     [X] it immediately refunds the order amount in to the order sender
     //     [X] it sets the order status to Cancelled
     //     [X] it emits an OrderCancelled event
@@ -70,6 +75,28 @@ contract CancelOrderTest is OrderBookTestBase {
             solver: params.solver
         });
         xchainOrderId = orderBook.getOrderId(xchainOrderData);
+    }
+
+    function test_whenPaused_localOrder_reverts() public {
+        vm.prank(pauser);
+        orderBook.pause();
+
+        bytes32 orderId = _getOrderIdFromParams(users["alice"], 0, params);
+        IOrderBook.Order memory order = orderBook.getOrder(orderId);
+        IOrderBook.OrderData memory orderData = _getOrderDataFromOrder(orderId, order);
+
+        vm.prank(users["alice"]);
+        vm.expectRevert(abi.encodeWithSelector(PausableUpgradeable.EnforcedPause.selector));
+        orderBook.cancelOrder(orderId, orderData, new bytes(0));
+    }
+
+    function test_whenPaused_xchainOrder_reverts() public {
+        vm.prank(pauser);
+        orderBook.pause();
+
+        vm.prank(users["alice"]);
+        vm.expectRevert(abi.encodeWithSelector(PausableUpgradeable.EnforcedPause.selector));
+        orderBook.cancelOrder(xchainOrderId, xchainOrderData, new bytes(0));
     }
 
     function test_givenOrderDoesNotExist_reverts() public {
@@ -197,6 +224,19 @@ contract CancelOrderTest is OrderBookTestBase {
         vm.prank(users["alice"]);
         vm.expectRevert(abi.encodeWithSelector(IOrderBook.InvalidDestinationChain.selector));
         orderBook.cancelOrder(orderId, orderData, new bytes(0));
+    }
+
+    function test_givenLocalOrder_givenMsgValueNotZero_reverts() public {
+        // User local order
+        bytes32 orderId = _getOrderIdFromParams(users["alice"], 0, params);
+        IOrderBook.Order memory order = orderBook.getOrder(orderId);
+        IOrderBook.OrderData memory orderData = _getOrderDataFromOrder(orderId, order);
+
+        uint256 aliceStartingBalance = tokenIn.balanceOf(users["alice"]);
+
+        vm.prank(users["alice"]);
+        vm.expectRevert(abi.encodeWithSelector(IOrderBook.InvalidMsgValue.selector));
+        orderBook.cancelOrder{ value: 1 }(orderId, orderData, new bytes(0));
     }
 
     function test_givenXChainOrder_givenChainIsNotDestinationChain_reverts() public {
