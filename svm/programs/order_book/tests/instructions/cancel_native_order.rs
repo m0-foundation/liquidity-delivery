@@ -1,7 +1,7 @@
 use super::super::{OrderBookTest, CHAIN_ID, DEST_CHAIN_ID};
 use anchor_litesvm::{Signer, TestHelpers};
 use anchor_spl::associated_token::get_associated_token_address;
-use order_book::{error::OrderBookError, ORDER_SEED_PREFIX, state::OrderData};
+use order_book::{error::OrderBookError, state::OrderData, ORDER_SEED_PREFIX};
 use std::error::Error;
 
 // CancelNativeOrder instruction tests
@@ -205,23 +205,18 @@ mod local_orders {
             amount_out: 1_000_000,
             recipient: test.get_user("alice").pubkey().to_bytes(),
             solver: test.get_user("solver").pubkey().to_bytes(),
-        }; 
+        };
         let order_id = order_data.compute_order_id();
-        
+
         // Create the accounts for the ix manually since it will fail on the order account lookup
         let order_account = test
             .ctx
             .svm
             .get_pda(&[ORDER_SEED_PREFIX, &order_id], &order_book::ID);
         let token_in_mint = test.get_mint("token-in-spl-6");
-        let sender_token_in_ata = test.get_ata(
-            "token-in-spl-6",
-            "alice"
-        );
-        let order_token_in_ata = test.create_associated_token_account(
-            &token_in_mint,
-            &order_account,
-        )?;
+        let sender_token_in_ata = test.get_ata("token-in-spl-6", "alice");
+        let order_token_in_ata =
+            test.create_associated_token_account(&token_in_mint, &order_account)?;
         let signer = test.get_user("alice");
 
         let accounts = order_book::accounts::CancelNativeOrder {
@@ -248,7 +243,7 @@ mod local_orders {
         test.ctx
             .execute_instruction(ix, &[&signer])
             .unwrap()
-            .assert_anchor_error("AccountNotInitialized"); 
+            .assert_anchor_error("AccountNotInitialized");
 
         Ok(())
     }
@@ -286,14 +281,9 @@ mod local_orders {
             .svm
             .get_pda(&[ORDER_SEED_PREFIX, &order_id], &order_book::ID);
         let token_in_mint = test.get_mint("token-in-spl-6");
-        let sender_token_in_ata = test.get_ata(
-            "token-in-spl-6",
-            "alice"
-        );
-        let order_token_in_ata = test.create_associated_token_account(
-            &token_in_mint,
-            &order_account,
-        )?;
+        let sender_token_in_ata = test.get_ata("token-in-spl-6", "alice");
+        let order_token_in_ata =
+            test.create_associated_token_account(&token_in_mint, &order_account)?;
         let signer = test.get_user("alice");
 
         let accounts = order_book::accounts::CancelNativeOrder {
@@ -320,7 +310,7 @@ mod local_orders {
         test.ctx
             .execute_instruction(ix, &[&signer])
             .unwrap()
-            .assert_anchor_error("AccountDidNotDeserialize"); // Fails due to deserialization error 
+            .assert_anchor_error("AccountDidNotDeserialize"); // Fails due to deserialization error
 
         Ok(())
     }
@@ -565,189 +555,5 @@ mod local_orders {
         Ok(())
     }
 
-    #[test]
-    fn test_cancel_and_close_ata_with_rent_refund() -> Result<(), Box<dyn Error>> {
-        let mut test = OrderBookTest::new()?;
-        test.initialize()?;
-
-        // Alice creates an order
-        let order_params = default_order_params(&test);
-        let order_id = test.open_order("alice", "token-in-spl-6", &order_params)?;
-
-        // Warp time past deadline
-        test.warp_forward(200);
-
-        // === STEP 1: Cancel the order ===
-
-        // Track balances BEFORE cancel
-        let alice_token_ata = test.get_ata("token-in-spl-6", "alice");
-        let alice_token_balance_before = test.get_token_balance(&alice_token_ata)?;
-        let alice = test.get_user("alice");
-        let alice_sol_balance_before = test
-            .ctx
-            .svm
-            .get_account(&alice.pubkey())
-            .map(|a| a.lamports)
-            .unwrap_or(0);
-
-        // Cancel the order
-        test.cancel_native_order("alice", "alice", order_id)?;
-
-        // Verify AFTER cancel
-        let (order_account, order_data) = test.get_native_order_account(&order_id)?;
-        assert_eq!(
-            order_data.data.status,
-            order_book::state::OrderStatus::Cancelled
-        );
-
-        // Verify SPL tokens were refunded
-        let alice_token_balance_after_cancel = test.get_token_balance(&alice_token_ata)?;
-        assert_eq!(
-            alice_token_balance_after_cancel - alice_token_balance_before,
-            1_000_000,
-            "SPL tokens should be refunded during cancel"
-        );
-
-        // Verify SOL did NOT increase (ATA not closed yet)
-        let alice_sol_balance_after_cancel = test
-            .ctx
-            .svm
-            .get_account(&alice.pubkey())
-            .map(|a| a.lamports)
-            .unwrap_or(0);
-
-        // SOL might decrease slightly due to tx fees, but should not increase
-        assert!(
-            alice_sol_balance_after_cancel <= alice_sol_balance_before,
-            "SOL should not increase during cancel (ATA not closed yet)"
-        );
-
-        // Verify ATA still exists with rent
-        let order_token_in_ata =
-            get_associated_token_address(&order_account, &test.get_mint("token-in-spl-6"));
-        let ata_account_after_cancel = test.ctx.svm.get_account(&order_token_in_ata).unwrap();
-        assert!(
-            ata_account_after_cancel.lamports > 0,
-            "ATA should still have rent after cancel"
-        );
-        assert!(
-            !ata_account_after_cancel.data.is_empty(),
-            "ATA should still have data after cancel"
-        );
-
-        // === STEP 2: Close the ATA ===
-
-        // Track SOL balance before close
-        let alice_sol_balance_before_close = test
-            .ctx
-            .svm
-            .get_account(&alice.pubkey())
-            .map(|a| a.lamports)
-            .unwrap_or(0);
-        let ata_rent = ata_account_after_cancel.lamports;
-
-        // Close the ATA
-        test.close_order_token_account("alice", order_id)?;
-
-        // Verify SOL increased by ATA rent amount
-        let alice_sol_balance_after_close = test
-            .ctx
-            .svm
-            .get_account(&alice.pubkey())
-            .map(|a| a.lamports)
-            .unwrap_or(0);
-
-        assert!(
-            alice_sol_balance_after_close > alice_sol_balance_before_close,
-            "SOL should increase after closing ATA"
-        );
-
-        // Check that increase is approximately the rent amount (accounting for tx fees)
-        let sol_increase = alice_sol_balance_after_close - alice_sol_balance_before_close;
-        assert!(
-            sol_increase >= ata_rent - 10_000, // Allow small tx fee
-            "SOL increase should be approximately ATA rent; expected ~{}, got {}",
-            ata_rent,
-            sol_increase
-        );
-
-        // Verify ATA is fully closed
-        let ata_account_after_close = test.ctx.svm.get_account(&order_token_in_ata).unwrap();
-        assert_eq!(
-            ata_account_after_close.lamports, 0,
-            "ATA must have 0 lamports after close"
-        );
-        assert!(
-            ata_account_after_close.data.is_empty(),
-            "ATA must have empty data after close"
-        );
-
-        // Verify SPL token balance unchanged from cancel to close
-        let alice_token_balance_final = test.get_token_balance(&alice_token_ata)?;
-        assert_eq!(
-            alice_token_balance_final, alice_token_balance_after_cancel,
-            "SPL token balance should not change during ATA close"
-        );
-
-        Ok(())
-    }
-
-    #[test]
-    fn test_close_fails_if_order_not_finalized() -> Result<(), Box<dyn Error>> {
-        let mut test = OrderBookTest::new()?;
-        test.initialize()?;
-
-        // Create an order (status = Created)
-        let order_params = default_order_params(&test);
-        let order_id = test.open_order("alice", "token-in-spl-6", &order_params)?;
-
-        // Verify order is in Created status
-        let (_, order_data) = test.get_native_order_account(&order_id)?;
-        assert_eq!(
-            order_data.data.status,
-            order_book::state::OrderStatus::Created
-        );
-
-        // Try to close - should fail because order not finalized
-        let ix =
-            test.create_close_order_token_account_ix(&test.get_user("alice").pubkey(), order_id)?;
-
-        test.ctx
-            .execute_instruction(ix, &[&test.get_user("alice")])?
-            .assert_anchor_error(&format!("{:?}", OrderBookError::OrderNotFinalized));
-
-        Ok(())
-    }
-
-    #[test]
-    fn test_close_fails_with_wrong_payer() -> Result<(), Box<dyn Error>> {
-        let mut test = OrderBookTest::new()?;
-        test.initialize()?;
-
-        // Alice creates an order (alice is payer)
-        let order_params = default_order_params(&test);
-        let order_id = test.open_order("alice", "token-in-spl-6", &order_params)?;
-
-        // Cancel the order
-        test.cancel_native_order("alice", "alice", order_id)?;
-
-        // Verify order is cancelled
-        let (_, order_data) = test.get_native_order_account(&order_id)?;
-        assert_eq!(
-            order_data.data.status,
-            order_book::state::OrderStatus::Cancelled
-        );
-
-        // Bob tries to close with himself as payer (should fail)
-        let ix = test.create_close_order_token_account_ix(
-            &test.get_user("bob").pubkey(), // Wrong payer!
-            order_id,
-        )?;
-
-        test.ctx
-            .execute_instruction(ix, &[&test.get_user("bob")])?
-            .assert_anchor_error(&format!("{:?}", OrderBookError::InvalidPayer));
-
-        Ok(())
-    }
+    // NOTE: CloseOrderTokenAccount tests have been moved to close_order_token_account.rs
 }
