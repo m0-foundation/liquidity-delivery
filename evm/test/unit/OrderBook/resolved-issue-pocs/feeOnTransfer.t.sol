@@ -124,6 +124,7 @@ contract FeeOnTransferTest is Test {
         //    reportCancel triggers refund which uses safeTransfer
         vm.prank(address(messenger));
         orderBook.reportCancel(
+            DEST_CHAIN_ID,
             IOrderBook.CancelReport({
                 orderId: orderId,
                 orderSender: alice.toBytes32(),

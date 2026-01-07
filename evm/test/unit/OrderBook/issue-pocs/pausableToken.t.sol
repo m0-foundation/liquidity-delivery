@@ -129,6 +129,7 @@ contract PausableTokenTest is Test {
         uint256 aliceBalanceBefore = pausableToken.balanceOf(alice);
         vm.prank(address(messenger));
         orderBook.reportCancel(
+            DEST_CHAIN_ID,
             IOrderBook.CancelReport({
                 orderId: orderId,
                 orderSender: alice.toBytes32(),

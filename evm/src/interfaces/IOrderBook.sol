@@ -575,9 +575,10 @@ interface IOrderBook {
     /**
      * @notice Report a cross-chain cancellation of an order.
      * @dev Must be called by the messenger contract
+     * @param sourceChainId_ The chain ID that the cancel report was sent from
      * @param report_ Cancel data sent from the destination chain
      */
-    function reportCancel(CancelReport calldata report_) external;
+    function reportCancel(uint32 sourceChainId_, CancelReport calldata report_) external;
 
     /* ========== Admin Functions ========== */
 

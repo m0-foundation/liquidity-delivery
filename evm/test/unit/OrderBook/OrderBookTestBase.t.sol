@@ -214,6 +214,7 @@ abstract contract OrderBookTestBase is Test {
     function _reportCancel(bytes32 orderId_, address orderSender_, address tokenIn_) internal {
         vm.prank(address(messenger));
         orderBook.reportCancel(
+            DEST_CHAIN_ID,
             IOrderBook.CancelReport({
                 orderId: orderId_,
                 orderSender: orderSender_.toBytes32(),
