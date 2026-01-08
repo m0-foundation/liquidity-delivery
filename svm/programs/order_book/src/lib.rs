@@ -132,6 +132,13 @@ pub mod order_book {
         FillForeignOrder::handler(ctx, order_id, order_data, fill_params)
     }
 
+    pub fn close_order_token_account(
+        ctx: Context<CloseOrderTokenAccount>,
+        order_id: [u8; 32],
+    ) -> Result<()> {
+        CloseOrderTokenAccount::handler(ctx, order_id)
+    }
+
     // Crosschain messaging actions
 
     pub fn report_order_fill(ctx: Context<ReportOrderFill>, fill_report: FillReport) -> Result<()> {
