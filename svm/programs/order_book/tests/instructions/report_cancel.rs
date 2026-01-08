@@ -54,7 +54,12 @@ fn test_report_cancel_unauthorized_portal_reverts() -> Result<(), Box<dyn Error>
     let order_params = default_order_params(&test);
     let order_id = test.open_order("alice", "token-in-spl-6", &order_params)?;
 
-    let cancel_report = order_book::instructions::CancelReport { order_id, order_sender: test.get_user("alice").pubkey().to_bytes(), token_in: test.get_mint("token-in-spl-6").to_bytes() };
+    let cancel_report = order_book::instructions::CancelReport {
+        order_id,
+        order_sender: test.get_user("alice").pubkey().to_bytes(),
+        token_in: test.get_mint("token-in-spl-6").to_bytes(),
+        amount_in_to_refund: order_params.amount_in as u128
+    };
 
     // Build accounts with wrong portal_authority (carol instead of the configured one)
     let relayer = test.get_user("bob");
@@ -113,6 +118,7 @@ fn test_report_cancel_order_not_exist_reverts() -> Result<(), Box<dyn Error>> {
         order_id: fake_order_id,
         order_sender: test.get_user("alice").pubkey().to_bytes(),
         token_in: test.get_mint("token-in-spl-6").to_bytes(),
+        amount_in_to_refund: 1_000_000 as u128
     };
 
     let relayer = test.get_user("bob");
@@ -192,6 +198,7 @@ fn test_report_cancel_completed_order_reverts() -> Result<(), Box<dyn Error>> {
         order_id,
         order_sender: test.get_user("alice").pubkey().to_bytes(),
         token_in: test.get_mint("token-in-spl-6").to_bytes(),
+        amount_in_to_refund: order_data.data.amount_in
     };
 
     let relayer = test.get_user("bob");
@@ -224,6 +231,7 @@ fn test_report_cancel_wrong_sender_account_reverts() -> Result<(), Box<dyn Error
         order_id,
         order_sender: test.get_user("alice").pubkey().to_bytes(),
         token_in: test.get_mint("token-in-spl-6").to_bytes(),
+        amount_in_to_refund: order_params.amount_in as u128
     };
 
     let relayer = test.get_user("bob");
@@ -290,6 +298,7 @@ fn test_report_cancel_reported_sender_mismatch_reverts() -> Result<(), Box<dyn E
         order_id,
         order_sender: wrong_sender.pubkey().to_bytes(), // Wrong sender
         token_in: test.get_mint("token-in-spl-6").to_bytes(),
+        amount_in_to_refund: order_params.amount_in as u128
     };
 
     let relayer = test.get_user("bob");
@@ -323,6 +332,7 @@ fn test_report_cancel_reported_token_in_mismatch_reverts() -> Result<(), Box<dyn
         order_id,
         order_sender: test.get_user("alice").pubkey().to_bytes(),
         token_in: test.get_mint("token-out-spl-6").to_bytes(), // Wrong token_in
+        amount_in_to_refund: order_params.amount_in as u128
     };
 
     let relayer = test.get_user("bob");
@@ -354,6 +364,7 @@ fn test_report_cancel_wrong_source_chain_id_reverts() -> Result<(), Box<dyn Erro
         order_id,
         order_sender: test.get_user("alice").pubkey().to_bytes(),
         token_in: test.get_mint("token-in-spl-6").to_bytes(),
+        amount_in_to_refund: order_params.amount_in as u128
     };
 
     let relayer = test.get_user("bob");
@@ -391,6 +402,7 @@ fn test_report_cancel_success() -> Result<(), Box<dyn Error>> {
         order_id,
         order_sender: test.get_user("alice").pubkey().to_bytes(),
         token_in: test.get_mint("token-in-spl-6").to_bytes(),
+        amount_in_to_refund: order_params.amount_in as u128
     };
     test.report_cancel("bob", order_params.dest_chain_id, &cancel_report)?;
 
@@ -436,6 +448,7 @@ fn test_report_cancel_partial_fill_refunds_remaining() -> Result<(), Box<dyn Err
         order_id,
         order_sender: test.get_user("alice").pubkey().to_bytes(),
         token_in: test.get_mint("token-in-spl-6").to_bytes(),
+        amount_in_to_refund: order_params.amount_in as u128 - fill_report.amount_in_to_release
     };
     test.report_cancel("bob", order_params.dest_chain_id, &cancel_report)?;
 
@@ -467,6 +480,7 @@ fn test_report_cancel_already_cancelled_reverts() -> Result<(), Box<dyn Error>> 
         order_id,
         order_sender: test.get_user("alice").pubkey().to_bytes(),
         token_in: test.get_mint("token-in-spl-6").to_bytes(),
+        amount_in_to_refund: order_params.amount_in as u128
     };
     test.report_cancel("bob", order_params.dest_chain_id, &cancel_report)?;
 
@@ -517,6 +531,7 @@ fn test_report_cancel_paused_success() -> Result<(), Box<dyn Error>> {
         order_id,
         order_sender: test.get_user("alice").pubkey().to_bytes(),
         token_in: test.get_mint("token-in-spl-6").to_bytes(),
+        amount_in_to_refund: order_params.amount_in as u128
     };
 
     let ix = test.create_report_cancel_ix(

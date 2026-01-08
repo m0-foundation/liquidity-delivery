@@ -320,6 +320,7 @@ fn test_report_fill_order_cancelled_reverts() -> Result<(), Box<dyn Error>> {
         order_id,
         order_sender: test.get_user("alice").pubkey().to_bytes(),
         token_in: test.get_mint("token-in-spl-6").to_bytes(),
+        amount_in_to_refund: order_params.amount_in as u128
     };
     test.report_cancel("bob", order_params.dest_chain_id, &cancel_report)?;
 

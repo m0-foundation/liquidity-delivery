@@ -31,11 +31,12 @@ pub mod mock_portal {
         order_sender: [u8; 32],
         token_in: [u8; 32],
         origin_chain_id: u32,
+        amount_in_to_refund: u128
     ) -> Result<()> {
         msg!(
             "Sending order cancel message to chain {}: {:?}",
             origin_chain_id,
-            (order_id, order_sender, token_in)
+            (order_id, order_sender, token_in, amount_in_to_refund)
         );
         Ok(())
     }
