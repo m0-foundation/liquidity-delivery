@@ -274,7 +274,7 @@ fn test_close_after_report_cancel() -> Result<(), Box<dyn Error>> {
     let ata_account = test.ctx.svm.get_account(&order_token_in_ata).unwrap();
     let ata_rent = ata_account.lamports;
 
-    // Report cancel via messenger (simulating cross-chain cancel report)
+    // Report cancel via portal (simulating cross-chain cancel report)
     let cancel_report = order_book::instructions::CancelReport { order_id };
     test.report_cancel("bob", order_params.dest_chain_id, &cancel_report)?;
 
@@ -337,7 +337,7 @@ fn test_close_after_report_fill() -> Result<(), Box<dyn Error>> {
     let ata_account = test.ctx.svm.get_account(&order_token_in_ata).unwrap();
     let ata_rent = ata_account.lamports;
 
-    // Report full fill via messenger (simulating cross-chain fill report)
+    // Report full fill via portal (simulating cross-chain fill report)
     let fill_report = order_book::instructions::FillReport {
         order_id,
         amount_in_to_release: 1_000_000, // full amount

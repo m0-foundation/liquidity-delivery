@@ -46,7 +46,7 @@ impl OrderBookTest {
         users.insert("carol", ctx.svm.create_funded_account(INITIAL_FUNDS)?);
         users.insert("solver", ctx.svm.create_funded_account(INITIAL_FUNDS)?);
         users.insert(
-            "messenger_authority",
+            "portal_authority",
             ctx.svm.create_funded_account(INITIAL_FUNDS)?,
         );
 
@@ -105,7 +105,7 @@ impl OrderBookTest {
 
     fn initialize(&mut self) -> Result<(), Box<dyn Error>> {
         let admin = self.users.get("admin").unwrap();
-        let messenger_authority = self.users.get("messenger_authority").unwrap();
+        let portal_authority = self.users.get("portal_authority").unwrap();
 
         // Initialize the order book global account
         let ix = self
@@ -121,7 +121,7 @@ impl OrderBookTest {
             })
             .args(order_book::instruction::Initialize {
                 chain_id: CHAIN_ID,
-                messenger_authority: messenger_authority.pubkey(),
+                portal_authority: portal_authority.pubkey(),
             })
             .instruction()?;
 
@@ -536,7 +536,7 @@ impl OrderBookTest {
     fn build_report_cancel_accounts(
         &self,
         relayer: &Pubkey,
-        messenger_authority: &Pubkey,
+        portal_authority: &Pubkey,
         cancel_report: &order_book::instructions::CancelReport,
     ) -> Result<order_book::accounts::ReportOrderCancel, Box<dyn Error>> {
         let (global_account, _) = self.get_global_account()?;
@@ -555,7 +555,7 @@ impl OrderBookTest {
             program: order_book::ID,
             event_authority: self.get_event_authority()?,
             relayer: *relayer,
-            messenger_authority: *messenger_authority,
+            portal_authority: *portal_authority,
             global_account,
             order: order_account,
             token_in_mint,
@@ -571,7 +571,7 @@ impl OrderBookTest {
     fn build_report_fill_accounts(
         &self,
         relayer: &Pubkey,
-        messenger_authority: &Pubkey,
+        portal_authority: &Pubkey,
         fill_report: &order_book::instructions::FillReport,
     ) -> Result<order_book::accounts::ReportOrderFill, Box<dyn Error>> {
         let (global_account, _) = self.get_global_account()?;
@@ -591,7 +591,7 @@ impl OrderBookTest {
             program: order_book::ID,
             event_authority: self.get_event_authority()?,
             relayer: *relayer,
-            messenger_authority: *messenger_authority,
+            portal_authority: *portal_authority,
             global_account,
             order: order_account,
             token_in_mint,
@@ -609,7 +609,7 @@ impl OrderBookTest {
         &self,
         admin: &Pubkey,
         chain_id: u32,
-        messenger_authority: &Pubkey,
+        portal_authority: &Pubkey,
     ) -> Result<Instruction, Box<dyn Error>> {
         let global_account = self
             .ctx
@@ -626,7 +626,7 @@ impl OrderBookTest {
             })
             .args(order_book::instruction::Initialize {
                 chain_id,
-                messenger_authority: *messenger_authority,
+                portal_authority: *portal_authority,
             })
             .instruction()?;
 
@@ -901,12 +901,11 @@ impl OrderBookTest {
     fn create_report_cancel_ix(
         &self,
         relayer: &Pubkey,
-        messenger_authority: &Pubkey,
+        portal_authority: &Pubkey,
         source_chain_id: u32,
         cancel_report: &order_book::instructions::CancelReport,
     ) -> Result<Instruction, Box<dyn Error>> {
-        let accounts =
-            self.build_report_cancel_accounts(relayer, messenger_authority, cancel_report)?;
+        let accounts = self.build_report_cancel_accounts(relayer, portal_authority, cancel_report)?;
 
         let ix = self
             .ctx
@@ -924,12 +923,12 @@ impl OrderBookTest {
     fn create_report_fill_ix(
         &self,
         relayer: &Pubkey,
-        messenger_authority: &Pubkey,
+        portal_authority: &Pubkey,
         source_chain_id: u32,
         fill_report: &order_book::instructions::FillReport,
     ) -> Result<Instruction, Box<dyn Error>> {
         let accounts =
-            self.build_report_fill_accounts(relayer, messenger_authority, fill_report)?;
+            self.build_report_fill_accounts(relayer, portal_authority, fill_report)?;
 
         let ix = self
             .ctx
@@ -1048,17 +1047,17 @@ impl OrderBookTest {
         fill_report: &order_book::instructions::FillReport,
     ) -> Result<(), Box<dyn Error>> {
         let relayer_keypair = self.users.get(relayer).unwrap();
-        let messenger_authority = self.users.get("messenger_authority").unwrap();
+        let portal_authority = self.users.get("portal_authority").unwrap();
 
         let ix = self.create_report_fill_ix(
             &relayer_keypair.pubkey(),
-            &messenger_authority.pubkey(),
+            &portal_authority.pubkey(),
             source_chain_id,
             fill_report,
         )?;
 
         self.ctx
-            .execute_instruction(ix, &[relayer_keypair, messenger_authority])?
+            .execute_instruction(ix, &[relayer_keypair, portal_authority])?
             .assert_success();
         Ok(())
     }
@@ -1108,17 +1107,17 @@ impl OrderBookTest {
         cancel_report: &order_book::instructions::CancelReport,
     ) -> Result<(), Box<dyn Error>> {
         let relayer_keypair = self.users.get(relayer).unwrap();
-        let messenger_authority = self.users.get("messenger_authority").unwrap();
+        let portal_authority = self.users.get("portal_authority").unwrap();
 
         let ix = self.create_report_cancel_ix(
             &relayer_keypair.pubkey(),
-            &messenger_authority.pubkey(),
+            &portal_authority.pubkey(),
             source_chain_id,
             cancel_report,
         )?;
 
         self.ctx
-            .execute_instruction(ix, &[relayer_keypair, messenger_authority])?
+            .execute_instruction(ix, &[relayer_keypair, portal_authority])?
             .assert_success();
 
         Ok(())

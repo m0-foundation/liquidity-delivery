@@ -13,7 +13,7 @@ abstract contract OrderBookTestBase is Test {
     using TypeConverter for *;
 
     OrderBook internal orderBook;
-    MockPortalV2 internal messenger;
+    MockPortalV2 internal portal;
 
     uint16 internal constant VERSION = 1;
     uint32 internal constant CHAIN_ID = 1;
@@ -83,10 +83,10 @@ abstract contract OrderBookTestBase is Test {
         }
 
         // Deploy
-        messenger = new MockPortalV2();
+        portal = new MockPortalV2();
         admin = users["admin"];
         pauser = users["pauser"];
-        address implementation = address(new OrderBook(CHAIN_ID, address(messenger)));
+        address implementation = address(new OrderBook(CHAIN_ID, address(portal)));
         orderBook = OrderBook(
             address(
                 new ERC1967Proxy(implementation, abi.encodeWithSelector(OrderBook.initialize.selector, admin, pauser))
@@ -94,7 +94,7 @@ abstract contract OrderBookTestBase is Test {
         );
 
         // Configure
-        messenger.setOrderBook(address(orderBook));
+        portal.setOrderBook(address(orderBook));
         vm.prank(admin);
         orderBook.setDestinationSupported(DEST_CHAIN_ID, true);
 
@@ -175,7 +175,7 @@ abstract contract OrderBookTestBase is Test {
         uint128 amountInToRelease_
     ) internal {
         // Report the fill back to the origin chain
-        vm.prank(address(messenger));
+        vm.prank(address(portal));
         orderBook.reportFill(
             DEST_CHAIN_ID,
             IOrderBook.FillReport({
@@ -216,7 +216,7 @@ abstract contract OrderBookTestBase is Test {
     }
 
     function _reportCancel(bytes32 orderId_, address orderSender_, address tokenIn_) internal {
-        vm.prank(address(messenger));
+        vm.prank(address(portal));
         orderBook.reportCancel(
             DEST_CHAIN_ID,
             IOrderBook.CancelReport({

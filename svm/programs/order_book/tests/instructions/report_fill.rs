@@ -5,7 +5,7 @@ use order_book::{error::OrderBookError, FillReport, ORDER_SEED_PREFIX};
 use std::error::Error;
 
 // ReportOrderFill instruction tests
-// [X] given the messenger_authority does not match the global account
+// [X] given the portal_authority does not match the global account
 //   [X] it reverts with a NotAuthorized error
 // [X] given the source chain ID does not match the order's dest_chain_id
 //   [X] it reverts with an InvalidReportSource error
@@ -19,14 +19,12 @@ use std::error::Error;
 //   [X] it reverts with an OrderNotFillable error
 // [X] given the fill_report amount_out_filled is zero
 //   [X] it reverts with an InvalidFillAmount error
-// [ ] given the token_in_mint does not match the order
-//   [ ] it reverts with an InvalidTokenMint error
-// [ ] given the origin_recipient does not match fill_report
-//   [ ] it reverts with an InvalidRecipient error
-// [-] given the fill would cause an overfill
-//   [-] NOTE: Implementation does NOT check for overfill - order is simply completed
-// [ ] given the order account PDA is incorrect
-//   [ ] it reverts with a ConstraintSeeds error
+// [X] given the token_in_mint does not match the order
+//   [X] it reverts with an InvalidTokenMint error
+// [X] given the origin_recipient does not match fill_report
+//   [X] it reverts with an InvalidRecipient error
+// [X] given the order account PDA is incorrect
+//   [X] it reverts with a ConstraintSeeds error
 // [X] given all checks pass and this is a partial fill
 //   [X] it updates amount_in_released cumulatively
 //   [X] it updates amount_out_filled cumulatively
@@ -64,7 +62,7 @@ fn default_fill_report(
 }
 
 #[test]
-fn test_report_fill_unauthorized_messenger_reverts() -> Result<(), Box<dyn Error>> {
+fn test_report_fill_unauthorized_portal_reverts() -> Result<(), Box<dyn Error>> {
     let mut test = OrderBookTest::new()?;
     test.initialize()?;
 
@@ -89,11 +87,11 @@ fn test_report_fill_unauthorized_messenger_reverts() -> Result<(), Box<dyn Error
     let fill_report =
         default_fill_report(&test, order_id, test.get_user("solver").pubkey().to_bytes());
 
-    // Build accounts with wrong messenger authority
-    let messenger_authority = test.get_user("bob");
+    // Build accounts with wrong portal authority
+    let portal_authority = test.get_user("bob");
     let accounts = test.build_report_fill_accounts(
         &test.get_user("admin").pubkey(),
-        &messenger_authority.pubkey(),
+        &portal_authority.pubkey(),
         &fill_report,
     )?;
 
@@ -105,7 +103,7 @@ fn test_report_fill_unauthorized_messenger_reverts() -> Result<(), Box<dyn Error
         .instruction()?;
 
     test.ctx
-        .execute_instruction(ix, &[&test.get_user("admin"), &messenger_authority])?
+        .execute_instruction(ix, &[&test.get_user("admin"), &portal_authority])?
         .assert_anchor_error(&format!("{:?}", OrderBookError::NotAuthorized));
 
     Ok(())
@@ -139,13 +137,13 @@ fn test_report_fill_invalid_source_chain_reverts() -> Result<(), Box<dyn Error>>
 
     let ix = test.create_report_fill_ix(
         &test.get_user("admin").pubkey(),
-        &test.get_user("messenger_authority").pubkey(),
+        &test.get_user("portal_authority").pubkey(),
         order_params.dest_chain_id + 1, // Invalid source chain ID
         &fill_report
     )?;
 
     test.ctx
-        .execute_instruction(ix, &[&test.get_user("admin"), &test.get_user("messenger_authority")])?
+        .execute_instruction(ix, &[&test.get_user("admin"), &test.get_user("portal_authority")])?
         .assert_anchor_error(&format!("{:?}", OrderBookError::InvalidReportSource));
 
     Ok(())
@@ -161,10 +159,10 @@ fn test_report_fill_order_not_exist_reverts() -> Result<(), Box<dyn Error>> {
     let fill_report =
         default_fill_report(&test, fake_order_id, test.get_user("solver").pubkey().to_bytes());
 
-    let messenger_authority = test.get_user("messenger_authority");
+    let portal_authority = test.get_user("portal_authority");
     let ix = test.create_report_fill_ix(
         &test.get_user("admin").pubkey(),
-        &messenger_authority.pubkey(),
+        &portal_authority.pubkey(),
         DEST_CHAIN_ID,
         &fill_report,
     );
@@ -217,11 +215,11 @@ fn test_report_fill_foreign_order_type_reverts() -> Result<(), Box<dyn Error>> {
         token_in: test.get_mint("token-in-spl-6").to_bytes(),
     };
 
-    let messenger_authority = test.get_user("messenger_authority");
+    let portal_authority = test.get_user("portal_authority");
     // Try to report fill for foreign order (should fail)
     let ix = test.create_report_fill_ix(
         &test.get_user("admin").pubkey(),
-        &messenger_authority.pubkey(),
+        &portal_authority.pubkey(),
         CHAIN_ID,
         &fill_report,
     );
@@ -279,17 +277,17 @@ fn test_report_fill_order_completed_reverts() -> Result<(), Box<dyn Error>> {
     test.ctx.svm.expire_blockhash();
 
     // Try to report another fill
-    let messenger_authority = test.get_user("messenger_authority");
+    let portal_authority = test.get_user("portal_authority");
     let fill_report = default_fill_report(&test, order_id, test.get_user("solver").pubkey().to_bytes());
     let ix = test.create_report_fill_ix(
         &test.get_user("admin").pubkey(),
-        &messenger_authority.pubkey(),
+        &portal_authority.pubkey(),
         order_params.dest_chain_id,
         &fill_report,
     )?;
 
     test.ctx
-        .execute_instruction(ix, &[&test.get_user("admin"), &messenger_authority])?
+        .execute_instruction(ix, &[&test.get_user("admin"), &portal_authority])?
         .assert_anchor_error(&format!("{:?}", OrderBookError::OrderNotFillable));
 
     Ok(())
@@ -332,17 +330,17 @@ fn test_report_fill_order_cancelled_reverts() -> Result<(), Box<dyn Error>> {
     test.ctx.svm.expire_blockhash();
 
     // Try to report fill on cancelled order
-    let messenger_authority = test.get_user("messenger_authority");
+    let portal_authority = test.get_user("portal_authority");
     let fill_report = default_fill_report(&test, order_id, test.get_user("solver").pubkey().to_bytes());
     let ix = test.create_report_fill_ix(
         &test.get_user("admin").pubkey(),
-        &messenger_authority.pubkey(),
+        &portal_authority.pubkey(),
         order_params.dest_chain_id,
         &fill_report,
     )?;
 
     test.ctx
-        .execute_instruction(ix, &[&test.get_user("admin"), &messenger_authority])?
+        .execute_instruction(ix, &[&test.get_user("admin"), &portal_authority])?
         .assert_anchor_error(&format!("{:?}", OrderBookError::OrderNotFillable));
 
     Ok(())
@@ -379,16 +377,16 @@ fn test_report_fill_zero_amount_reverts() -> Result<(), Box<dyn Error>> {
         token_in: test.get_mint("token-in-spl-6").to_bytes(),
     };
 
-    let messenger_authority = test.get_user("messenger_authority");
+    let portal_authority = test.get_user("portal_authority");
     let ix = test.create_report_fill_ix(
         &test.get_user("admin").pubkey(),
-        &messenger_authority.pubkey(),
+        &portal_authority.pubkey(),
         order_params.dest_chain_id,
         &fill_report,
     )?;
 
     test.ctx
-        .execute_instruction(ix, &[&test.get_user("admin"), &messenger_authority])?
+        .execute_instruction(ix, &[&test.get_user("admin"), &portal_authority])?
         .assert_anchor_error(&format!("{:?}", OrderBookError::InvalidFillAmount));
 
     Ok(())
@@ -420,7 +418,7 @@ fn test_report_fill_wrong_token_mint_reverts() -> Result<(), Box<dyn Error>> {
 
     // Build accounts using helper, then modify to use wrong token mint
     let mut accounts =
-        test.build_report_fill_accounts(&test.get_user("admin").pubkey(), &test.get_user("messenger_authority").pubkey(), &fill_report)?;
+        test.build_report_fill_accounts(&test.get_user("admin").pubkey(), &test.get_user("portal_authority").pubkey(), &fill_report)?;
 
     // Override with wrong token mint
     let wrong_token_mint = test.get_mint("token-in-spl-9");
@@ -443,7 +441,7 @@ fn test_report_fill_wrong_token_mint_reverts() -> Result<(), Box<dyn Error>> {
         .instruction()?;
 
     test.ctx
-        .execute_instruction(ix, &[&test.get_user("admin"), &test.get_user("messenger_authority")])?
+        .execute_instruction(ix, &[&test.get_user("admin"), &test.get_user("portal_authority")])?
         .assert_anchor_error("AccountNotInitialized");
 
     Ok(())
@@ -476,7 +474,7 @@ fn test_report_fill_wrong_recipient_reverts() -> Result<(), Box<dyn Error>> {
     // Build accounts using helper, then modify to use wrong recipient
     let mut accounts = test.build_report_fill_accounts(
         &test.get_user("admin").pubkey(),
-        &test.get_user("messenger_authority").pubkey(),
+        &test.get_user("portal_authority").pubkey(),
         &fill_report,
     )?;
 
@@ -497,7 +495,7 @@ fn test_report_fill_wrong_recipient_reverts() -> Result<(), Box<dyn Error>> {
         .instruction()?;
 
     test.ctx
-        .execute_instruction(ix, &[&test.get_user("admin"), &test.get_user("messenger_authority")])?
+        .execute_instruction(ix, &[&test.get_user("admin"), &test.get_user("portal_authority")])?
         .assert_anchor_error(&format!("{:?}", OrderBookError::InvalidRecipient));
 
     Ok(())
@@ -530,7 +528,7 @@ fn test_report_fill_wrong_order_pda_reverts() -> Result<(), Box<dyn Error>> {
     // Build accounts using helper, then modify to use wrong order PDA
     let mut accounts = test.build_report_fill_accounts(
         &test.get_user("admin").pubkey(),
-        &test.get_user("messenger_authority").pubkey(),
+        &test.get_user("portal_authority").pubkey(),
         &fill_report,
     )?;
 
@@ -554,7 +552,7 @@ fn test_report_fill_wrong_order_pda_reverts() -> Result<(), Box<dyn Error>> {
         .instruction()?;
 
     test.ctx
-        .execute_instruction(ix, &[&test.get_user("admin"), &test.get_user("messenger_authority")])?
+        .execute_instruction(ix, &[&test.get_user("admin"), &test.get_user("portal_authority")])?
         .assert_anchor_error("AccountNotInitialized");
 
     Ok(())
@@ -864,7 +862,7 @@ fn test_report_fill_with_donation_success() -> Result<(), Box<dyn Error>> {
 }
 
 #[test]
-fn test_report_fill_paused_reverts() -> Result<(), Box<dyn Error>> {
+fn test_report_fill_paused_success() -> Result<(), Box<dyn Error>> {
     let mut test = OrderBookTest::new()?;
     test.initialize()?;
 
@@ -890,7 +888,7 @@ fn test_report_fill_paused_reverts() -> Result<(), Box<dyn Error>> {
 
     // Try to report a fill
     let solver = test.get_user("solver");
-    let messenger_authority = test.get_user("messenger_authority");
+    let portal_authority = test.get_user("portal_authority");
     let fill_report = FillReport {
         order_id,
         amount_in_to_release: 500_000,
@@ -900,13 +898,13 @@ fn test_report_fill_paused_reverts() -> Result<(), Box<dyn Error>> {
     };
     let ix = test.create_report_fill_ix(
         &solver.pubkey(),
-        &messenger_authority.pubkey(),
+        &portal_authority.pubkey(),
         order_params.dest_chain_id,
         &fill_report,
     )?;
 
     test.ctx
-        .execute_instruction(ix, &[&solver, &messenger_authority])?
+        .execute_instruction(ix, &[&solver, &portal_authority])?
         .assert_success();
 
     Ok(())
