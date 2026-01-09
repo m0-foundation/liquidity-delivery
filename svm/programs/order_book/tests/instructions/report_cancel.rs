@@ -1,7 +1,7 @@
 use super::super::{OrderBookTest, DEST_CHAIN_ID};
 use anchor_litesvm::{Signer, TestHelpers};
 use anchor_spl::associated_token::get_associated_token_address;
-use order_book::{error::OrderBookError, ORDER_SEED_PREFIX};
+use order_book::{error::OrderBookError, FillReport, ORDER_SEED_PREFIX};
 use std::error::Error;
 
 // ReportOrderCancel instruction tests
@@ -29,6 +29,8 @@ use std::error::Error;
 //   [X] it transfers remaining token_in to sender
 // [X] given a partial fill occurred
 //   [X] it refunds only the remaining tokens
+// [X] given a partial fill occurred and refund exceeds available
+//   [X] it reverts with InvalidRefundAmount
 // [X] given the program is paused
 //   [X] it completes successfully
 
@@ -544,6 +546,57 @@ fn test_report_cancel_paused_success() -> Result<(), Box<dyn Error>> {
     test.ctx
         .execute_instruction(ix, &[&relayer, &portal_authority])?
         .assert_success();
+
+    Ok(())
+}
+
+#[test]
+fn test_report_cancel_after_partial_fill_refund_exceeds_available_reverts() -> Result<(), Box<dyn Error>> {
+    let mut test = OrderBookTest::new()?;
+    test.initialize()?;
+
+    // Create a crosschain order
+    let order_params = default_order_params(&test);
+    let order_id = test.open_order("alice", "token-in-spl-6", &order_params)?;
+
+    // Report partial fill (50%)
+    let fill_report = FillReport {
+        order_id,
+        amount_in_to_release: 500_000u128,
+        amount_out_filled: 500_000u128,
+        origin_recipient: test.get_user("solver").pubkey().to_bytes(),
+        token_in: test.get_mint("token-in-spl-6").to_bytes(),
+    };
+    test.report_fill("admin", order_params.dest_chain_id, &fill_report)?;
+
+    // Verify order is partially filled
+    let (_, order_data) = test.get_native_order_account(&order_id)?;
+    assert_eq!(order_data.data.amount_in_released, 500_000);
+
+    // Expire blockhash to avoid AlreadyProcessed error
+    test.ctx.svm.expire_blockhash();
+
+    // Try to report cancel for 51% (more than the remaining 50%)
+    // This should fail because amount_in_released + amount_in_to_refund > amount_in
+    let relayer = test.get_user("bob");
+    let portal_authority = test.get_user("portal_authority");
+    let cancel_report = order_book::instructions::CancelReport {
+        order_id,
+        order_sender: test.get_user("alice").pubkey().to_bytes(),
+        token_in: test.get_mint("token-in-spl-6").to_bytes(),
+        amount_in_to_refund: 510_000u128, // 51% - exceeds remaining 50%
+    };
+
+    let ix = test.create_report_cancel_ix(
+        &relayer.pubkey(),
+        &portal_authority.pubkey(),
+        order_params.dest_chain_id,
+        &cancel_report,
+    )?;
+
+    test.ctx
+        .execute_instruction(ix, &[&relayer, &portal_authority])?
+        .assert_anchor_error(&format!("{:?}", OrderBookError::InvalidRefundAmount));
 
     Ok(())
 }
