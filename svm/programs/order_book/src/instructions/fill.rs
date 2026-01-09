@@ -127,6 +127,7 @@ pub struct FillNativeOrder<'info> {
         mut,
         seeds = [ORDER_SEED_PREFIX, &order_id],
         bump = order.bump,
+        constraint = order.order_type == OrderType::Native @ OrderBookError::InvalidOrderType
     )]
     pub order: Account<'info, Order::<NativeOrder>>,
 
@@ -392,6 +393,12 @@ impl<'info> FillForeignOrder<'info> {
                 amount_out_filled: 0,
                 amount_in_refunded: 0
             };
+        } else {
+            // Otherwise, validate the type of the order
+            require!(
+                ctx.accounts.order.order_type == OrderType::Foreign,
+                OrderBookError::InvalidOrderType
+            );
         }
 
         let order = &mut ctx.accounts.order.data;
