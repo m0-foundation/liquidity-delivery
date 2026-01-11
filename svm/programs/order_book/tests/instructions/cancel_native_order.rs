@@ -1,6 +1,5 @@
 use super::super::{OrderBookTest, CHAIN_ID, DEST_CHAIN_ID};
 use anchor_litesvm::{Signer, TestHelpers};
-use anchor_spl::associated_token::get_associated_token_address;
 use order_book::{error::OrderBookError, state::OrderData, ORDER_SEED_PREFIX};
 use std::error::Error;
 

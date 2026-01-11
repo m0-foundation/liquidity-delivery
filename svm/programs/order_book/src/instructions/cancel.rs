@@ -13,8 +13,10 @@ use anchor_spl::{
 };
 
 use crate::portal::{
+    constants::{AUTHORITY_SEED as PORTAL_AUTHORITY_SEED, GLOBAL_SEED as PORTAL_GLOBAL_SEED},
     cpi::{accounts::SendCancelReport, send_cancel_report},
     program::Portal,
+    ID as PORTAL_ID
 };
 
 // Instructions related to cancelling orders
@@ -221,13 +223,25 @@ pub struct CancelForeignOrder {
 
     pub portal_program: Program<'info, Portal>,
 
-    /// CHECK: Portal global account
-    /// This is validated in the portal CPI
-    #[account(mut)]
+    /// CHECK: We validate the account seeds here
+    /// The data is not used in this instruction
+    /// We pass it into the CPI to the portal program
+    #[account(
+        mut,
+        seeds = [PORTAL_GLOBAL_SEED],
+        seeds::program = PORTAL_ID,
+        bump,
+    )]
     pub portal_global: UncheckedAccount<'info>,
 
-    /// CHECK: Portal authority PDA
-    /// This is validated in the portal CPI
+    /// CHECK: We validate the seeds here
+    /// The account holds no data and is used as a signer
+    /// in the CPI to the portal program
+    #[account(
+        seeds = [PORTAL_AUTHORITY_SEED],
+        seeds::program = PORTAL_ID,
+        bump
+    )]
     pub portal_authority: UncheckedAccount<'info>,
 
     /// CHECK: Bridge adapter program
