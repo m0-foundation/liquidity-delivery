@@ -1,0 +1,33 @@
+# Deployer image for local development
+# Deploys contracts to Anvil nodes
+
+FROM ghcr.io/foundry-rs/foundry:latest
+
+# Switch to root to install packages (foundry image runs as non-root by default)
+USER root
+
+# Install bash, curl, and jq (foundry image is Debian-based)
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    bash \
+    curl \
+    jq \
+    && rm -rf /var/lib/apt/lists/*
+
+WORKDIR /app
+
+# Copy EVM contracts and scripts
+COPY evm/ ./evm/
+
+# Copy deployment script
+COPY docker/scripts/deploy-local.sh ./deploy-local.sh
+RUN chmod +x ./deploy-local.sh
+
+# Set working directory to evm for forge commands
+WORKDIR /app/evm
+
+# Install dependencies
+RUN forge install --no-commit || true
+
+WORKDIR /app
+
+ENTRYPOINT ["/bin/bash", "./deploy-local.sh"]

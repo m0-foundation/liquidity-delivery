@@ -34,7 +34,6 @@ docs/
 evm/cache/
 evm/lib/
 evm/broadcast/
-evm/script/
 
 # SVM development artifacts
 svm/target/

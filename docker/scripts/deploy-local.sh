@@ -1,0 +1,109 @@
+#!/bin/bash
+set -e
+
+# Deterministic addresses from private keys
+SOLVER_ADDRESS="0x06A85356DCb5b307096726FB86A78c59D38e08ee"
+USER_ADDRESS="0x0a57b5CE26704c64B0A5FD670567831982A2A387"
+
+# Anvil's default funded account (account 0)
+ANVIL_ACCOUNT="0xf39Fd6e51aad88F6F4ce6aB8827279cffFb92266"
+ANVIL_PRIVATE_KEY="0xac0974bec39a17e36ba4a6b4d238ff944bacb478cbed5efcae784d7bf4f2ff80"
+
+# Chain configurations
+CHAIN_A_RPC="${CHAIN_A_RPC:-http://anvil-chain-a:8545}"
+CHAIN_B_RPC="${CHAIN_B_RPC:-http://anvil-chain-b:8545}"
+CHAIN_A_ID=31337
+CHAIN_B_ID=31338
+
+# Function to wait for RPC to be ready
+wait_for_rpc() {
+    local rpc_url=$1
+    local name=$2
+    local max_attempts=30
+    local attempt=1
+
+    echo "Waiting for $name to be ready..."
+    while [ $attempt -le $max_attempts ]; do
+        if curl -s -X POST -H "Content-Type: application/json" \
+            --data '{"jsonrpc":"2.0","method":"eth_blockNumber","params":[],"id":1}' \
+            "$rpc_url" > /dev/null 2>&1; then
+            echo "$name is ready!"
+            return 0
+        fi
+        echo "  Attempt $attempt/$max_attempts - waiting..."
+        sleep 1
+        attempt=$((attempt + 1))
+    done
+    echo "ERROR: $name failed to become ready"
+    exit 1
+}
+
+# Function to fund an account
+fund_account() {
+    local rpc_url=$1
+    local to_address=$2
+    local amount=$3  # in wei
+    local name=$4
+
+    echo "Funding $name ($to_address) with 10 ETH..."
+    cast send --rpc-url "$rpc_url" \
+        --private-key "$ANVIL_PRIVATE_KEY" \
+        "$to_address" \
+        --value "$amount" \
+        > /dev/null 2>&1
+    echo "  Funded successfully"
+}
+
+# Function to deploy contracts to a chain
+deploy_to_chain() {
+    local rpc_url=$1
+    local chain_id=$2
+    local dest_chain_id=$3
+    local chain_name=$4
+
+    echo ""
+    echo "Deploying to $chain_name (Chain ID: $chain_id)..."
+    echo "----------------------------------------"
+
+    cd /app/evm
+
+    # Run the deployment script
+    CHAIN_ID=$chain_id \
+    DEST_CHAIN_ID=$dest_chain_id \
+    SOLVER_ADDRESS=$SOLVER_ADDRESS \
+    USER_ADDRESS=$USER_ADDRESS \
+    forge script script/deploy/DeployLocal.s.sol:DeployLocal \
+        --rpc-url "$rpc_url" \
+        --broadcast \
+        --skip-simulation \
+        2>&1 | tee /tmp/deploy_${chain_id}.log
+}
+
+# Wait for both Anvil nodes
+wait_for_rpc "$CHAIN_A_RPC" "Chain A (Anvil)"
+wait_for_rpc "$CHAIN_B_RPC" "Chain B (Anvil)"
+
+echo "Both chains are ready. Funding accounts..."
+
+# Fund solver and user accounts on both chains (10 ETH each)
+FUNDING_AMOUNT="10000000000000000000"  # 10 ETH in wei
+
+fund_account "$CHAIN_A_RPC" "$SOLVER_ADDRESS" "$FUNDING_AMOUNT" "Solver (Chain A)"
+fund_account "$CHAIN_A_RPC" "$USER_ADDRESS" "$FUNDING_AMOUNT" "User (Chain A)"
+fund_account "$CHAIN_B_RPC" "$SOLVER_ADDRESS" "$FUNDING_AMOUNT" "Solver (Chain B)"
+fund_account "$CHAIN_B_RPC" "$USER_ADDRESS" "$FUNDING_AMOUNT" "User (Chain B)"
+
+echo "Deploying contracts..."
+
+# Deploy to Chain A (destination is Chain B)
+deploy_to_chain "$CHAIN_A_RPC" "$CHAIN_A_ID" "$CHAIN_B_ID" "Chain A"
+
+# Deploy to Chain B (destination is Chain A)
+deploy_to_chain "$CHAIN_B_RPC" "$CHAIN_B_ID" "$CHAIN_A_ID" "Chain B"
+
+echo "Deployment Complete!"
+echo "Accounts funded:"
+echo "  Solver: $SOLVER_ADDRESS (10 ETH on each chain)"
+echo "  User: $USER_ADDRESS (10 ETH + 1000 USDC + 1000 USDT on each chain)"
+echo ""
+echo "Deployer finished successfully!"

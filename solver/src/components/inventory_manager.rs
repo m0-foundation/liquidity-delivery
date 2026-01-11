@@ -240,9 +240,7 @@ impl InventoryManager {
                 .collect();
 
             for (asset, amount) in assets.iter().zip(join_all(balance_futures).await.iter()) {
-                if *amount > 0 {
-                    self.balances.write().await.insert(asset.clone(), *amount);
-                }
+                self.balances.lock().await.insert(asset.clone(), *amount);
             }
 
             // Also get native ETH balance

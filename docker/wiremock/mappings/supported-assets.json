@@ -11,22 +11,46 @@
     "jsonBody": [
       {
         "chain": "Ethereum",
-        "address": "0x437cc33344a0B27A429f795ff6B469C72698B291",
-        "symbol": "wM",
+        "chainId": 31337,
+        "address": "0xa513E6E4b8f2a923D98304ec87F64353C4D5C853",
+        "symbol": "USDC",
         "icon": "",
-        "name": "wM",
+        "name": "USD Coin",
         "decimals": 6,
-        "m0Extension": true,
+        "m0Extension": false,
+        "runtime": "evm"
+      },
+      {
+        "chain": "Ethereum",
+        "chainId": 31337,
+        "address": "0x2279B7A0a67DB372996a5FaB50D91eAA73d2eBe6",
+        "symbol": "USDT",
+        "icon": "",
+        "name": "Tether USD",
+        "decimals": 6,
+        "m0Extension": false,
         "runtime": "evm"
       },
       {
         "chain": "Base",
-        "address": "0x437cc33344a0B27A429f795ff6B469C72698B291",
-        "symbol": "wM",
+        "chainId": 31338,
+        "address": "0xa513E6E4b8f2a923D98304ec87F64353C4D5C853",
+        "symbol": "USDC",
         "icon": "",
-        "name": "wM",
+        "name": "USD Coin",
         "decimals": 6,
-        "m0Extension": true,
+        "m0Extension": false,
+        "runtime": "evm"
+      },
+      {
+        "chain": "Base",
+        "chainId": 31338,
+        "address": "0x2279B7A0a67DB372996a5FaB50D91eAA73d2eBe6",
+        "symbol": "USDT",
+        "icon": "",
+        "name": "Tether USD",
+        "decimals": 6,
+        "m0Extension": false,
         "runtime": "evm"
       }
     ]

@@ -1,4 +1,53 @@
 services:
+  # Anvil node - Chain A (local Ethereum)
+  anvil-chain-a:
+    image: ghcr.io/foundry-rs/foundry:latest
+    container_name: anvil-chain-a
+    entrypoint: ["anvil", "--host", "0.0.0.0", "--chain-id", "1", "--block-time", "1", "-v"]
+    ports:
+      - "8545:8545"
+    healthcheck:
+      test: ["CMD", "cast", "block-number", "--rpc-url", "http://localhost:8545"]
+      interval: 2s
+      timeout: 5s
+      retries: 10
+      start_period: 2s
+    networks:
+      - liquidity-network
+
+  # Anvil node - Chain B (local Base)
+  anvil-chain-b:
+    image: ghcr.io/foundry-rs/foundry:latest
+    container_name: anvil-chain-b
+    entrypoint: ["anvil", "--host", "0.0.0.0", "--chain-id", "8453", "--block-time", "1", "-v"]
+    ports:
+      - "8546:8545"
+    healthcheck:
+      test: ["CMD", "cast", "block-number", "--rpc-url", "http://localhost:8545"]
+      interval: 2s
+      timeout: 5s
+      retries: 10
+      start_period: 2s
+    networks:
+      - liquidity-network
+
+  # Contract deployer - deploys OrderBook and ERC20 tokens to Anvil nodes
+  deployer:
+    build:
+      context: .
+      dockerfile: docker/Dockerfile.deployer
+    container_name: liquidity-deployer
+    depends_on:
+      anvil-chain-a:
+        condition: service_healthy
+      anvil-chain-b:
+        condition: service_healthy
+    environment:
+      - CHAIN_A_RPC=http://anvil-chain-a:8545
+      - CHAIN_B_RPC=http://anvil-chain-b:8545
+    networks:
+      - liquidity-network
+
   # Mock liquidity API using WireMock
   mock-api:
     image: wiremock/wiremock:latest
@@ -51,6 +100,8 @@ services:
         condition: service_healthy
       mock-api:
         condition: service_healthy
+      deployer:
+        condition: service_completed_successfully
     volumes:
       - ./docker/config/solver-local.yaml:/app/config.yaml:ro
     networks:
