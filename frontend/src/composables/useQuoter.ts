@@ -52,6 +52,11 @@ export function useQuoter() {
 
       const data = await response.json();
 
+      // Check if quote was rejected
+      if (data.rejected) {
+        throw new Error(data.reject_reason || "Quote rejected");
+      }
+
       quote.value = {
         amountOut: data.amount_out || "0",
         rate: parseInt(request.amount) / parseInt(data.amount_out) || 1,

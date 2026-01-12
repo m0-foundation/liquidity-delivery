@@ -5,6 +5,7 @@ export interface Asset {
   name: string
   icon: string
   address: string
+  decimals: number
   chain_ids: number[]
 }
 

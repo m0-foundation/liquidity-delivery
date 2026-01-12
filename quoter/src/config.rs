@@ -16,6 +16,7 @@ pub struct Asset {
     pub icon: String,
     pub address: String,
     pub chain_ids: Vec<u32>,
+    pub decimals: u8,
 }
 
 #[derive(Debug, Clone, Deserialize)]

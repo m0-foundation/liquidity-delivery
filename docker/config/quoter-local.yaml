@@ -20,9 +20,11 @@ assets:
     icon: "https://cryptologos.cc/logos/usd-coin-usdc-logo.svg"
     address: "0xa513E6E4b8f2a923D98304ec87F64353C4D5C853"
     chain_ids: [1, 8453]
+    decimals: 6
 
   - ticker: "USDT"
     name: "Tether USD"
     icon: "https://cryptologos.cc/logos/tether-usdt-logo.svg"
     address: "0x2279B7A0a67DB372996a5FaB50D91eAA73d2eBe6"
     chain_ids: [1, 8453]
+    decimals: 6

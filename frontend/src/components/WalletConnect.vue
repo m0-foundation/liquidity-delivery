@@ -10,6 +10,7 @@ const emit = defineEmits<{
   'evm-connected': [connected: boolean]
   'svm-connected': [connected: boolean]
   'evm-address': [address: string | null]
+  'svm-address': [address: string | null]
 }>()
 
 // Pass network as a reactive ref so useWallet can react to changes
@@ -30,8 +31,10 @@ const {
 watch(evmConnected, (val) => emit('evm-connected', val))
 watch(svmConnected, (val) => emit('svm-connected', val))
 watch(evmAddress, (val) => emit('evm-address', val), { immediate: true })
+watch(svmAddress, (val) => emit('svm-address', val), { immediate: true })
 
 const copied = ref<'evm' | 'svm' | null>(null)
+const showLocalInfo = ref(false)
 
 function truncateAddress(addr: string): string {
   if (!addr) return ''
@@ -49,6 +52,15 @@ async function copyAddress(addr: string, type: 'evm' | 'svm') {
     console.error('Failed to copy:', e)
   }
 }
+
+function getWalletTypeColor(type: 'evm' | 'svm' | 'local'): string {
+  const colors: Record<string, string> = {
+    evm: 'from-blue-500 to-blue-600',
+    svm: 'from-purple-500 to-purple-600',
+    local: 'from-emerald-500 to-emerald-600',
+  }
+  return colors[type] || colors.evm
+}
 </script>
 
 <template>
@@ -56,52 +68,106 @@ async function copyAddress(addr: string, type: 'evm' | 'svm') {
     <!-- Connected State -->
     <div v-if="evmConnected || svmConnected" class="flex items-center gap-2">
       <!-- EVM Wallet Display -->
-      <div v-if="evmAddress" class="flex items-center gap-2 bg-gray-800 rounded-lg px-3 py-2">
-        <span
-          class="text-xs font-medium px-1.5 py-0.5 rounded"
-          :class="isLocal ? 'bg-green-600 text-green-100' : 'bg-blue-600 text-blue-100'"
+      <div
+        v-if="evmAddress"
+        class="group flex items-center gap-2 bg-slate-850/80 rounded-xl px-3 py-2 border border-white/5 hover:border-accent-500/30 transition-all duration-200"
+      >
+        <!-- Chain Badge -->
+        <div
+          :class="[
+            'w-6 h-6 rounded-lg flex items-center justify-center text-[10px] font-bold text-white bg-gradient-to-br',
+            isLocal ? getWalletTypeColor('local') : getWalletTypeColor('evm')
+          ]"
         >
-          {{ isLocal ? 'Local' : 'EVM' }}
-        </span>
-        <span
-          class="text-sm cursor-pointer hover:text-primary-400 transition-colors"
+          {{ isLocal ? 'L' : 'E' }}
+        </div>
+
+        <!-- Address -->
+        <button
+          class="text-sm font-mono text-surface-300 hover:text-white transition-colors"
           :title="evmAddress"
           @click="copyAddress(evmAddress, 'evm')"
         >
           {{ truncateAddress(evmAddress) }}
-        </span>
-        <span v-if="copied === 'evm'" class="text-xs text-green-400">Copied!</span>
+        </button>
+
+        <!-- Copy Confirmation -->
+        <Transition
+          enter-active-class="transition-all duration-200"
+          enter-from-class="opacity-0 scale-90"
+          enter-to-class="opacity-100 scale-100"
+          leave-active-class="transition-all duration-150"
+          leave-from-class="opacity-100 scale-100"
+          leave-to-class="opacity-0 scale-90"
+        >
+          <span v-if="copied === 'evm'" class="text-xs text-emerald-400 flex items-center gap-1">
+            <svg class="w-3 h-3" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3">
+              <path d="M5 13l4 4L19 7" stroke-linecap="round" stroke-linejoin="round"/>
+            </svg>
+          </span>
+        </Transition>
+
+        <!-- Disconnect Button -->
         <button
           @click="disconnectEvm"
-          class="text-gray-400 hover:text-white ml-1 text-lg leading-none"
+          class="text-surface-500 hover:text-rose-400 transition-colors p-1 -mr-1 rounded hover:bg-rose-500/10"
           title="Disconnect EVM wallet"
         >
-          &times;
+          <svg class="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <path d="M6 18L18 6M6 6l12 12" stroke-linecap="round" stroke-linejoin="round"/>
+          </svg>
         </button>
       </div>
 
       <!-- SVM Wallet Display -->
-      <div v-if="svmAddress" class="flex items-center gap-2 bg-gray-800 rounded-lg px-3 py-2">
-        <span
-          class="text-xs font-medium px-1.5 py-0.5 rounded"
-          :class="isLocal ? 'bg-green-600 text-green-100' : 'bg-purple-600 text-purple-100'"
+      <div
+        v-if="svmAddress"
+        class="group flex items-center gap-2 bg-slate-850/80 rounded-xl px-3 py-2 border border-white/5 hover:border-accent-500/30 transition-all duration-200"
+      >
+        <!-- Chain Badge -->
+        <div
+          :class="[
+            'w-6 h-6 rounded-lg flex items-center justify-center text-[10px] font-bold text-white bg-gradient-to-br',
+            isLocal ? getWalletTypeColor('local') : getWalletTypeColor('svm')
+          ]"
         >
-          {{ isLocal ? 'Local' : 'SVM' }}
-        </span>
-        <span
-          class="text-sm cursor-pointer hover:text-primary-400 transition-colors"
+          {{ isLocal ? 'L' : 'S' }}
+        </div>
+
+        <!-- Address -->
+        <button
+          class="text-sm font-mono text-surface-300 hover:text-white transition-colors"
           :title="svmAddress"
           @click="copyAddress(svmAddress, 'svm')"
         >
           {{ truncateAddress(svmAddress) }}
-        </span>
-        <span v-if="copied === 'svm'" class="text-xs text-green-400">Copied!</span>
+        </button>
+
+        <!-- Copy Confirmation -->
+        <Transition
+          enter-active-class="transition-all duration-200"
+          enter-from-class="opacity-0 scale-90"
+          enter-to-class="opacity-100 scale-100"
+          leave-active-class="transition-all duration-150"
+          leave-from-class="opacity-100 scale-100"
+          leave-to-class="opacity-0 scale-90"
+        >
+          <span v-if="copied === 'svm'" class="text-xs text-emerald-400 flex items-center gap-1">
+            <svg class="w-3 h-3" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3">
+              <path d="M5 13l4 4L19 7" stroke-linecap="round" stroke-linejoin="round"/>
+            </svg>
+          </span>
+        </Transition>
+
+        <!-- Disconnect Button -->
         <button
           @click="disconnectSvm"
-          class="text-gray-400 hover:text-white ml-1 text-lg leading-none"
+          class="text-surface-500 hover:text-rose-400 transition-colors p-1 -mr-1 rounded hover:bg-rose-500/10"
           title="Disconnect SVM wallet"
         >
-          &times;
+          <svg class="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <path d="M6 18L18 6M6 6l12 12" stroke-linecap="round" stroke-linejoin="round"/>
+          </svg>
         </button>
       </div>
 
@@ -109,10 +175,12 @@ async function copyAddress(addr: string, type: 'evm' | 'svm') {
       <button
         v-if="!isLocal && (!evmConnected || !svmConnected)"
         @click="connect"
-        class="bg-primary-600 hover:bg-primary-500 text-white px-3 py-2 rounded-lg text-sm font-medium"
+        class="w-9 h-9 flex items-center justify-center bg-accent-600 hover:bg-accent-500 text-white rounded-xl transition-all duration-200 hover:shadow-glow-sm"
         title="Connect another wallet"
       >
-        +
+        <svg class="w-5 h-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+          <path d="M12 4v16m8-8H4" stroke-linecap="round" stroke-linejoin="round"/>
+        </svg>
       </button>
     </div>
 
@@ -120,34 +188,66 @@ async function copyAddress(addr: string, type: 'evm' | 'svm') {
     <button
       v-else
       @click="connect"
-      class="bg-primary-600 hover:bg-primary-500 text-white px-4 py-2 rounded-lg text-sm font-medium"
+      @mouseenter="isLocal && (showLocalInfo = true)"
+      @mouseleave="showLocalInfo = false"
+      class="btn-primary px-5 py-2.5 text-sm flex items-center gap-2"
     >
-      {{ isLocal ? 'Connect Local Wallets' : 'Connect Wallet' }}
+      <svg class="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+        <path d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z" stroke-linecap="round" stroke-linejoin="round"/>
+      </svg>
+      {{ isLocal ? 'Connect Local' : 'Connect Wallet' }}
     </button>
 
-    <!-- Local Mode Info (only shown when disconnected in local mode) -->
-    <div
-      v-if="isLocal && !evmConnected && !svmConnected"
-      class="absolute right-0 top-full mt-2 w-72 bg-gray-800 rounded-lg shadow-xl border border-gray-700 p-4 z-50"
+    <!-- Local Mode Info Tooltip -->
+    <Transition
+      enter-active-class="transition-all duration-200 ease-out"
+      enter-from-class="opacity-0 translate-y-1"
+      enter-to-class="opacity-100 translate-y-0"
+      leave-active-class="transition-all duration-150 ease-in"
+      leave-from-class="opacity-100 translate-y-0"
+      leave-to-class="opacity-0 translate-y-1"
     >
-      <div class="flex items-start gap-2">
-        <span class="text-yellow-400">&#9888;</span>
-        <div class="text-sm">
-          <p class="text-gray-300 mb-2">Local mode uses hardcoded private keys from environment variables.</p>
-          <p class="text-gray-400 text-xs">Set <code class="bg-gray-700 px-1 rounded">VITE_LOCAL_EVM_PRIVATE_KEY</code> and <code class="bg-gray-700 px-1 rounded">VITE_LOCAL_SVM_PRIVATE_KEY</code> in your .env file.</p>
+      <div
+        v-if="isLocal && showLocalInfo && !evmConnected && !svmConnected"
+        class="absolute right-0 top-full mt-3 w-80 glass-card rounded-xl p-4 z-50"
+      >
+        <div class="flex items-start gap-3">
+          <div class="w-8 h-8 rounded-lg bg-amber-500/20 flex items-center justify-center flex-shrink-0">
+            <svg class="w-4 h-4 text-amber-400" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <path d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" stroke-linecap="round" stroke-linejoin="round"/>
+            </svg>
+          </div>
+          <div>
+            <p class="text-sm text-surface-200 mb-2">Local mode uses hardcoded private keys from environment variables.</p>
+            <div class="space-y-1">
+              <code class="block text-xs bg-slate-800 text-accent-400 px-2 py-1 rounded font-mono">VITE_LOCAL_EVM_PRIVATE_KEY</code>
+              <code class="block text-xs bg-slate-800 text-accent-400 px-2 py-1 rounded font-mono">VITE_LOCAL_SVM_PRIVATE_KEY</code>
+            </div>
+          </div>
         </div>
       </div>
-    </div>
+    </Transition>
 
     <!-- Error Display -->
-    <div
-      v-if="error"
-      class="absolute right-0 top-full mt-2 w-72 bg-red-900/90 text-red-200 rounded-lg p-3 text-sm z-50 border border-red-700"
+    <Transition
+      enter-active-class="transition-all duration-200 ease-out"
+      enter-from-class="opacity-0 translate-y-1"
+      enter-to-class="opacity-100 translate-y-0"
+      leave-active-class="transition-all duration-150 ease-in"
+      leave-from-class="opacity-100 translate-y-0"
+      leave-to-class="opacity-0 translate-y-1"
     >
-      <div class="flex items-start gap-2">
-        <span class="text-red-400">&#10006;</span>
-        <span>{{ error }}</span>
+      <div
+        v-if="error"
+        class="absolute right-0 top-full mt-3 w-80 bg-rose-500/10 border border-rose-500/20 text-rose-300 rounded-xl p-4 z-50"
+      >
+        <div class="flex items-start gap-3">
+          <svg class="w-5 h-5 flex-shrink-0 text-rose-400" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <path d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" stroke-linecap="round" stroke-linejoin="round"/>
+          </svg>
+          <span class="text-sm">{{ error }}</span>
+        </div>
       </div>
-    </div>
+    </Transition>
   </div>
 </template>

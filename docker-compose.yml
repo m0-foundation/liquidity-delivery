@@ -1,4 +1,20 @@
 services:
+  # Surfpool - Local Solana validator
+  surfpool:
+    image: ghcr.io/txtx/surfpool:latest
+    container_name: surfpool
+    ports:
+      - "8899:8899"
+      - "8900:8900"
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8899/health"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+      start_period: 10s
+    networks:
+      - liquidity-network
+
   # Anvil node - Chain A (local Ethereum)
   anvil-chain-a:
     image: ghcr.io/foundry-rs/foundry:latest
