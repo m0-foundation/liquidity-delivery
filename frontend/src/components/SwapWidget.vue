@@ -12,8 +12,8 @@ const props = defineProps<{
 }>()
 
 const { getQuote, loading, error, quote } = useQuoter()
-const { assets } = useAssets()
-const { fetchBalance, loading: balanceLoading } = useBalance()
+const { assets, getAssetForChain, getUniqueTickers } = useAssets()
+const { fetchBalance } = useBalance()
 
 // Form state
 const fromChain = ref('ethereum')
@@ -58,27 +58,25 @@ const chains = computed(() => {
   }
 })
 
-// Get tokens from API assets, fallback to static list if API hasn't loaded
-const tokens = computed(() => {
+// Get unique token tickers for dropdown display
+const tokenTickers = computed(() => {
   if (assets.value.length > 0) {
-    return assets.value.map(asset => ({
-      ticker: asset.ticker,
-      name: asset.name,
-      icon: asset.icon,
-      address: asset.address,
-      decimals: asset.decimals,
-    }))
+    return getUniqueTickers()
   }
-  return [
-    { ticker: 'USDC', name: 'USD Coin', icon: '', address: '', decimals: 6 },
-    { ticker: 'USDT', name: 'Tether USD', icon: '', address: '', decimals: 6 },
-    { ticker: 'M', name: 'M Token', icon: '', address: '', decimals: 6 },
-  ]
+  return ['USDC', 'wM']
 })
 
-// Get asset by ticker
-function getAsset(ticker: string) {
-  return tokens.value.find(t => t.ticker === ticker)
+// Get a representative token info for display (icon, name) - uses first matching asset
+function getTokenInfo(ticker: string) {
+  const asset = assets.value.find(a => a.ticker === ticker)
+  return asset ? { name: asset.name, icon: asset.icon } : { name: ticker, icon: '' }
+}
+
+// Get asset for a specific chain (returns address, decimals for that chain)
+function getAssetForSelectedChain(ticker: string, chainId: string) {
+  const chain = chains.value.find(c => c.id === chainId)
+  if (!chain) return null
+  return getAssetForChain(ticker, chain.chainId)
 }
 
 // Convert float amount to integer based on decimals
@@ -91,20 +89,36 @@ function toIntegerAmount(amount: string, decimals: number): string {
 
 // Get token icon URL from assets
 function getTokenIcon(ticker: string): string | null {
-  const token = tokens.value.find(t => t.ticker === ticker)
-  return token?.icon || null
+  const info = getTokenInfo(ticker)
+  return info.icon || null
 }
 
-// Chain icon component
-function getChainColor(chainId: string): string {
-  const colorMap: Record<string, string> = {
-    'ethereum': '#627eea',
-    'solana': '#9945ff',
-    'base': '#0052ff',
-    'arbitrum': '#28a0f0',
-  }
-  return colorMap[chainId] || '#64748b'
+// Check if a chain ID represents a Solana chain
+function isSolanaChain(chainId: string): boolean {
+  return chainId === 'solana'
 }
+
+// Determine which wallets are required for the current swap configuration
+const sourceRuntime = computed(() => isSolanaChain(fromChain.value) ? 'svm' : 'evm')
+const destRuntime = computed(() => isSolanaChain(toChain.value) ? 'svm' : 'evm')
+
+// Check which wallets are needed and connected
+const needsEvmWallet = computed(() => sourceRuntime.value === 'evm' || destRuntime.value === 'evm')
+const needsSvmWallet = computed(() => sourceRuntime.value === 'svm' || destRuntime.value === 'svm')
+
+const hasRequiredEvmWallet = computed(() => !needsEvmWallet.value || !!props.evmAddress)
+const hasRequiredSvmWallet = computed(() => !needsSvmWallet.value || !!props.svmAddress)
+
+// Check if all required wallets are connected
+const hasAllRequiredWallets = computed(() => hasRequiredEvmWallet.value && hasRequiredSvmWallet.value)
+
+// Get the missing wallet type for display
+const missingWalletType = computed(() => {
+  if (!hasRequiredEvmWallet.value && !hasRequiredSvmWallet.value) return 'both'
+  if (!hasRequiredEvmWallet.value) return 'evm'
+  if (!hasRequiredSvmWallet.value) return 'svm'
+  return null
+})
 
 // Swap direction
 function swapDirection() {
@@ -121,8 +135,8 @@ function swapDirection() {
 async function requestQuote() {
   const srcChain = chains.value.find(c => c.id === fromChain.value)
   const dstChain = chains.value.find(c => c.id === toChain.value)
-  const srcAsset = getAsset(fromToken.value)
-  const dstAsset = getAsset(toToken.value)
+  const srcAsset = getAssetForSelectedChain(fromToken.value, fromChain.value)
+  const dstAsset = getAssetForSelectedChain(toToken.value, toChain.value)
 
   if (!srcChain || !dstChain || !amount.value || !srcAsset || !dstAsset) return
 
@@ -176,6 +190,25 @@ function formatAmount(val: string): string {
   return num.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 6 })
 }
 
+// Convert raw integer amount to decimal string using token decimals
+function fromIntegerAmount(rawAmount: string, decimals: number): string {
+  if (!rawAmount || rawAmount === '0') return '0.00'
+  const paddedRaw = rawAmount.padStart(decimals + 1, '0')
+  const integerPart = paddedRaw.slice(0, -decimals) || '0'
+  const decimalPart = paddedRaw.slice(-decimals)
+  const trimmedDecimal = decimalPart.replace(/0+$/, '').padEnd(2, '0').slice(0, 6)
+  return `${integerPart}.${trimmedDecimal}`
+}
+
+// Computed formatted output amount using destination token decimals
+const formattedOutputAmount = computed(() => {
+  if (!quote.value?.amountOut) return '0.00'
+  const dstAsset = getAssetForSelectedChain(toToken.value, toChain.value)
+  if (!dstAsset) return '0.00'
+  const decimalAmount = fromIntegerAmount(quote.value.amountOut, dstAsset.decimals)
+  return formatAmount(decimalAmount)
+})
+
 // Get wallet address for a given chain
 function getWalletAddressForChain(chainId: string): string | null {
   if (chainId === 'solana') {
@@ -184,33 +217,13 @@ function getWalletAddressForChain(chainId: string): string | null {
   return props.evmAddress
 }
 
-// Check if token address format is valid for the chain type
-function isAddressValidForChain(address: string, chainId: string): boolean {
-  if (!address) return false
-
-  const isEvmAddress = address.startsWith('0x')
-  const isSolanaChain = chainId === 'solana'
-
-  // EVM addresses start with 0x, Solana addresses are base58 (no 0x prefix)
-  if (isSolanaChain && isEvmAddress) {
-    return false // EVM address on Solana chain - invalid
-  }
-  if (!isSolanaChain && !isEvmAddress) {
-    return false // Solana address on EVM chain - invalid
-  }
-  return true
-}
-
 // Fetch balance for the "from" side
 async function fetchFromBalance() {
   const chain = chains.value.find(c => c.id === fromChain.value)
-  const asset = getAsset(fromToken.value)
+  const asset = getAssetForSelectedChain(fromToken.value, fromChain.value)
   const walletAddress = getWalletAddressForChain(fromChain.value)
 
-  // Check if address format is compatible with chain
-  const addressValid = asset?.address ? isAddressValidForChain(asset.address, fromChain.value) : false
-
-  if (!chain || !asset || !walletAddress || !asset.address || !addressValid) {
+  if (!chain || !asset || !walletAddress || !asset.address) {
     fromBalance.value = null
     return
   }
@@ -236,13 +249,10 @@ async function fetchFromBalance() {
 // Fetch balance for the "to" side
 async function fetchToBalance() {
   const chain = chains.value.find(c => c.id === toChain.value)
-  const asset = getAsset(toToken.value)
+  const asset = getAssetForSelectedChain(toToken.value, toChain.value)
   const walletAddress = getWalletAddressForChain(toChain.value)
 
-  // Check if address format is compatible with chain
-  const addressValid = asset?.address ? isAddressValidForChain(asset.address, toChain.value) : false
-
-  if (!chain || !asset || !walletAddress || !asset.address || !addressValid) {
+  if (!chain || !asset || !walletAddress || !asset.address) {
     toBalance.value = null
     return
   }
@@ -305,11 +315,6 @@ function setMaxFromBalance() {
     <!-- Header -->
     <div class="flex items-center justify-between mb-6">
       <h2 class="text-xl font-semibold text-white">Swap</h2>
-      <button class="btn-ghost p-2 rounded-lg">
-        <svg class="w-5 h-5 text-surface-400" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-          <path d="M12 6V4m0 2a2 2 0 100 4m0-4a2 2 0 110 4m-6 8a2 2 0 100-4m0 4a2 2 0 110-4m0 4v2m0-6V4m6 6v10m6-2a2 2 0 100-4m0 4a2 2 0 110-4m0 4v2m0-6V4" stroke-linecap="round" stroke-linejoin="round"/>
-        </svg>
-      </button>
     </div>
 
     <!-- From Section -->
@@ -390,8 +395,8 @@ function setMaxFromBalance() {
               v-model="fromToken"
               class="bg-transparent text-sm font-medium text-white outline-none cursor-pointer appearance-none pr-4"
             >
-              <option v-for="token in tokens" :key="token.ticker" :value="token.ticker" class="bg-slate-900">
-                {{ token.ticker }}
+              <option v-for="ticker in tokenTickers" :key="ticker" :value="ticker" class="bg-slate-900">
+                {{ ticker }}
               </option>
             </select>
           </div>
@@ -474,7 +479,7 @@ function setMaxFromBalance() {
             <span class="text-surface-400 text-lg">Fetching quote...</span>
           </div>
           <div v-else class="text-3xl font-medium" :class="quote?.amountOut ? 'text-white' : 'text-surface-600'">
-            {{ quote?.amountOut ? formatAmount(quote.amountOut) : '0.00' }}
+            {{ formattedOutputAmount }}
           </div>
         </div>
 
@@ -495,8 +500,8 @@ function setMaxFromBalance() {
               v-model="toToken"
               class="bg-transparent text-sm font-medium text-white outline-none cursor-pointer appearance-none pr-4"
             >
-              <option v-for="token in tokens" :key="token.ticker" :value="token.ticker" class="bg-slate-900">
-                {{ token.ticker }}
+              <option v-for="ticker in tokenTickers" :key="ticker" :value="ticker" class="bg-slate-900">
+                {{ ticker }}
               </option>
             </select>
           </div>
@@ -600,10 +605,10 @@ function setMaxFromBalance() {
 
     <!-- Swap Button -->
     <button
-      :disabled="!connected || !quote || loading"
+      :disabled="!hasAllRequiredWallets || !quote || loading"
       :class="[
         'btn-primary w-full text-lg',
-        !connected && 'opacity-60'
+        !hasAllRequiredWallets && 'opacity-60'
       ]"
     >
       <span v-if="!connected" class="flex items-center justify-center gap-2">
@@ -612,6 +617,24 @@ function setMaxFromBalance() {
         </svg>
         Connect Wallet
       </span>
+      <span v-else-if="missingWalletType === 'both'" class="flex items-center justify-center gap-2">
+        <svg class="w-5 h-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+          <path d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z" stroke-linecap="round" stroke-linejoin="round"/>
+        </svg>
+        Connect EVM &amp; Solana Wallets
+      </span>
+      <span v-else-if="missingWalletType === 'evm'" class="flex items-center justify-center gap-2">
+        <svg class="w-5 h-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+          <path d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z" stroke-linecap="round" stroke-linejoin="round"/>
+        </svg>
+        Connect EVM Wallet
+      </span>
+      <span v-else-if="missingWalletType === 'svm'" class="flex items-center justify-center gap-2">
+        <svg class="w-5 h-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+          <path d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z" stroke-linecap="round" stroke-linejoin="round"/>
+        </svg>
+        Connect Solana Wallet
+      </span>
       <span v-else-if="loading" class="flex items-center justify-center gap-2">
         <div class="loading-spinner"></div>
         Getting Quote...
@@ -619,21 +642,5 @@ function setMaxFromBalance() {
       <span v-else>Swap</span>
     </button>
 
-    <!-- Route Info -->
-    <div v-if="quote && !loading" class="mt-4 pt-4 border-t border-white/5">
-      <div class="flex items-center justify-center gap-2 text-xs text-surface-500">
-        <span class="flex items-center gap-1">
-          <div class="w-2 h-2 rounded-full" :style="{ backgroundColor: getChainColor(fromChain) }"></div>
-          {{ chains.find(c => c.id === fromChain)?.name }}
-        </span>
-        <svg class="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-          <path d="M14 5l7 7m0 0l-7 7m7-7H3" stroke-linecap="round" stroke-linejoin="round"/>
-        </svg>
-        <span class="flex items-center gap-1">
-          <div class="w-2 h-2 rounded-full" :style="{ backgroundColor: getChainColor(toChain) }"></div>
-          {{ chains.find(c => c.id === toChain)?.name }}
-        </span>
-      </div>
-    </div>
   </div>
 </template>

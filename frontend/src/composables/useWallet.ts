@@ -1,8 +1,8 @@
-import { ref, computed, watch, toValue, type MaybeRef } from 'vue'
+import { ref, computed, watch, toValue, type MaybeRef, onUnmounted } from 'vue'
 import { Wallet, JsonRpcProvider } from 'ethers'
 import { Keypair } from '@solana/web3.js'
-import { useAppKit, useAppKitAccount, useDisconnect, useAppKitNetwork } from '@reown/appkit/vue'
-import { getAppKit, initializeAppKit } from '../appkit'
+import { getAccount, watchAccount, disconnect as wagmiDisconnect, connect as wagmiConnect, getConnectors } from '@wagmi/core'
+import { wagmiConfig, solflare } from '../wallets'
 
 export type NetworkType = 'local' | 'devnet' | 'mainnet'
 
@@ -14,59 +14,6 @@ export interface WalletState {
   isLocal: boolean
   walletType: 'local' | 'external'
   error: string | null
-}
-
-// EVM chain configurations
-function getEvmChainConfig(network: NetworkType) {
-  switch (network) {
-    case 'local':
-      return {
-        chainId: 31337,
-        chainIdHex: '0x7A69',
-        chainName: 'Anvil Local',
-        rpcUrl: import.meta.env.VITE_ANVIL_RPC || 'http://localhost:8545',
-      }
-    case 'devnet':
-      return {
-        chainId: 11155111,
-        chainIdHex: '0xAA36A7',
-        chainName: 'Sepolia',
-        rpcUrl: 'https://sepolia.gateway.tenderly.co',
-      }
-    case 'mainnet':
-      return {
-        chainId: 1,
-        chainIdHex: '0x1',
-        chainName: 'Ethereum',
-        rpcUrl: 'https://eth.llamarpc.com',
-      }
-  }
-}
-
-// Solana RPC configurations
-function getSolanaRpc(network: NetworkType): string {
-  switch (network) {
-    case 'local':
-      return import.meta.env.VITE_SURFPOOL_RPC || 'http://localhost:8899'
-    case 'devnet':
-      return 'https://api.devnet.solana.com'
-    case 'mainnet':
-      return 'https://api.mainnet-beta.solana.com'
-  }
-}
-
-// Parse SVM private key from env (JSON array of bytes)
-function parseSvmPrivateKey(keyStr: string): Uint8Array | null {
-  if (!keyStr) return null
-  try {
-    const parsed = JSON.parse(keyStr)
-    if (Array.isArray(parsed)) {
-      return Uint8Array.from(parsed)
-    }
-    return null
-  } catch {
-    return null
-  }
 }
 
 export function useWallet(networkRef: MaybeRef<NetworkType>) {
@@ -85,71 +32,56 @@ export function useWallet(networkRef: MaybeRef<NetworkType>) {
   const evmConnected = computed(() => !!evmAddress.value)
   const svmConnected = computed(() => !!svmAddress.value)
 
-  // AppKit hooks (initialized lazily for non-local mode)
-  let appKitAccount: ReturnType<typeof useAppKitAccount> | null = null
-  let appKitNetwork: ReturnType<typeof useAppKitNetwork> | null = null
-  let appKitDisconnect: ReturnType<typeof useDisconnect> | null = null
-  let appKitModal: ReturnType<typeof useAppKit> | null = null
-  let appKitInitialized = false
+  // Track watchers for cleanup
+  let unwatchWagmi: (() => void) | null = null
+  let solflareListenersSetup = false
 
-  function ensureAppKitInitialized() {
-    if (isLocal.value) return false
+  // Setup wagmi watcher for EVM account changes
+  function setupWagmiWatcher() {
+    if (isLocal.value) return
 
-    // Initialize AppKit if not already done
-    if (!getAppKit()) {
-      initializeAppKit()
+    // Clean up previous watcher if exists
+    unwatchWagmi?.()
+
+    unwatchWagmi = watchAccount(wagmiConfig, {
+      onChange(data) {
+        if (isLocal.value) return
+        walletType.value = 'external'
+        evmAddress.value = data.address ?? null
+      },
+    })
+
+    // Get initial state
+    const account = getAccount(wagmiConfig)
+    if (account.address) {
+      evmAddress.value = account.address
+      walletType.value = 'external'
     }
+  }
 
-    const appKit = getAppKit()
-    if (appKit && !appKitInitialized) {
-      try {
-        appKitAccount = useAppKitAccount()
-        appKitNetwork = useAppKitNetwork()
-        appKitDisconnect = useDisconnect()
-        appKitModal = useAppKit()
-        appKitInitialized = true
+  // Setup Solflare event listeners for Solana account changes
+  function setupSolflareListeners() {
+    if (isLocal.value || solflareListenersSetup) return
 
-        // Watch AppKit account changes
-        if (appKitAccount && appKitNetwork) {
-          watch(
-            [() => appKitAccount?.value?.address, () => appKitNetwork?.value?.caipNetwork?.chainNamespace],
-            ([newAddress, chainNamespace]) => {
-              if (!isLocal.value && newAddress) {
-                console.log('AppKit account update:', { newAddress, chainNamespace })
+    solflare.on('connect', () => {
+      if (isLocal.value) return
+      walletType.value = 'external'
+      svmAddress.value = solflare.publicKey?.toString() ?? null
+    })
 
-                // Use chainNamespace to determine wallet type, fallback to address format
-                if (chainNamespace === 'solana' ||
-                    (newAddress && !newAddress.startsWith('0x') && newAddress.length >= 32)) {
-                  svmAddress.value = newAddress
-                  walletType.value = 'external'
-                } else if (chainNamespace === 'eip155' || newAddress.startsWith('0x')) {
-                  evmAddress.value = newAddress
-                  walletType.value = 'external'
-                }
-              }
-            },
-            { immediate: true }
-          )
-
-          // Watch for disconnection
-          watch(
-            () => appKitAccount?.value?.isConnected,
-            (isConnected) => {
-              if (!isLocal.value && isConnected === false) {
-                // AppKit disconnected - clear addresses
-                evmAddress.value = null
-                svmAddress.value = null
-              }
-            }
-          )
-        }
-        return true
-      } catch (e) {
-        console.warn('AppKit hooks not available:', e)
-        return false
+    solflare.on('disconnect', () => {
+      if (!isLocal.value) {
+        svmAddress.value = null
       }
+    })
+
+    solflareListenersSetup = true
+
+    // Check if already connected
+    if (solflare.isConnected && solflare.publicKey) {
+      svmAddress.value = solflare.publicKey.toString()
+      walletType.value = 'external'
     }
-    return appKitInitialized
   }
 
   // Clear all wallet state
@@ -172,8 +104,8 @@ export function useWallet(networkRef: MaybeRef<NetworkType>) {
     const evmPrivateKey = import.meta.env.VITE_LOCAL_EVM_PRIVATE_KEY
     if (evmPrivateKey) {
       try {
-        const chainConfig = getEvmChainConfig(currentNetwork.value)
-        const provider = new JsonRpcProvider(chainConfig.rpcUrl)
+        const rpcUrl = import.meta.env.VITE_ANVIL_RPC || 'http://localhost:8545'
+        const provider = new JsonRpcProvider(rpcUrl)
         localEvmWallet.value = new Wallet(evmPrivateKey, provider)
         evmAddress.value = localEvmWallet.value.address
       } catch (e) {
@@ -186,9 +118,9 @@ export function useWallet(networkRef: MaybeRef<NetworkType>) {
     const svmPrivateKey = import.meta.env.VITE_LOCAL_SVM_PRIVATE_KEY
     if (svmPrivateKey) {
       try {
-        const secretKey = parseSvmPrivateKey(svmPrivateKey)
-        if (secretKey) {
-          localSvmKeypair.value = Keypair.fromSecretKey(secretKey)
+        const secretKey = JSON.parse(svmPrivateKey)
+        if (Array.isArray(secretKey)) {
+          localSvmKeypair.value = Keypair.fromSecretKey(Uint8Array.from(secretKey))
           svmAddress.value = localSvmKeypair.value.publicKey.toBase58()
         }
       } catch (e) {
@@ -206,6 +138,9 @@ export function useWallet(networkRef: MaybeRef<NetworkType>) {
         // Initial setup
         if (newNetwork === 'local') {
           await initializeLocalWallets()
+        } else {
+          setupWagmiWatcher()
+          setupSolflareListeners()
         }
         return
       }
@@ -213,46 +148,32 @@ export function useWallet(networkRef: MaybeRef<NetworkType>) {
       // Network changed - clear existing wallet state
       clearWalletState()
 
-      // Disconnect AppKit if switching away from external wallet mode
-      if (oldNetwork !== 'local' && appKitDisconnect) {
+      // Disconnect external wallets if switching away from devnet/mainnet
+      if (oldNetwork !== 'local') {
         try {
-          await appKitDisconnect.disconnect()
+          await wagmiDisconnect(wagmiConfig)
         } catch (e) {
-          console.warn('AppKit disconnect error:', e)
+          console.warn('Wagmi disconnect error:', e)
+        }
+        try {
+          await solflare.disconnect()
+        } catch (e) {
+          console.warn('Solflare disconnect error:', e)
         }
       }
 
-      // Auto-connect local wallets when switching to local mode
+      // Setup for new network
       if (newNetwork === 'local') {
         await initializeLocalWallets()
+      } else {
+        setupWagmiWatcher()
+        setupSolflareListeners()
       }
     },
     { immediate: true }
   )
 
-  // Connect wallet (opens AppKit modal for non-local networks)
-  async function connect(): Promise<void> {
-    error.value = null
-
-    if (isLocal.value) {
-      await initializeLocalWallets()
-      return
-    }
-
-    // Ensure AppKit is initialized for devnet/mainnet
-    if (!ensureAppKitInitialized()) {
-      error.value = 'AppKit not initialized. Please check your Reown project ID.'
-      return
-    }
-
-    try {
-      appKitModal!.open()
-    } catch (e) {
-      error.value = e instanceof Error ? e.message : 'Failed to open wallet modal'
-    }
-  }
-
-  // Connect EVM specifically
+  // Connect EVM wallet (browser extension via wagmi injected connector)
   async function connectEvm(): Promise<void> {
     error.value = null
 
@@ -261,19 +182,23 @@ export function useWallet(networkRef: MaybeRef<NetworkType>) {
       return
     }
 
-    if (!ensureAppKitInitialized()) {
-      error.value = 'AppKit not initialized. Please check your Reown project ID.'
-      return
-    }
-
     try {
-      appKitModal!.open({ view: 'Connect' })
+      const connectors = getConnectors(wagmiConfig)
+      const injectedConnector = connectors.find(c => c.id === 'injected')
+
+      if (!injectedConnector) {
+        error.value = 'No browser wallet extension found. Please install Rabby or MetaMask.'
+        return
+      }
+
+      await wagmiConnect(wagmiConfig, { connector: injectedConnector })
     } catch (e) {
-      error.value = e instanceof Error ? e.message : 'Failed to open wallet modal'
+      error.value = e instanceof Error ? e.message : 'Failed to connect EVM wallet'
+      console.error('EVM connect error:', e)
     }
   }
 
-  // Connect SVM specifically
+  // Connect SVM wallet (Solflare)
   async function connectSvm(): Promise<void> {
     error.value = null
 
@@ -282,38 +207,15 @@ export function useWallet(networkRef: MaybeRef<NetworkType>) {
       return
     }
 
-    if (!ensureAppKitInitialized()) {
-      error.value = 'AppKit not initialized. Please check your Reown project ID.'
-      return
-    }
-
     try {
-      appKitModal!.open({ view: 'Connect' })
+      await solflare.connect()
     } catch (e) {
-      error.value = e instanceof Error ? e.message : 'Failed to open wallet modal'
+      error.value = e instanceof Error ? e.message : 'Failed to connect Solflare wallet'
+      console.error('SVM connect error:', e)
     }
   }
 
-  // Disconnect wallet
-  async function disconnect(): Promise<void> {
-    if (isLocal.value) {
-      clearWalletState()
-      return
-    }
-
-    if (appKitDisconnect) {
-      try {
-        await appKitDisconnect.disconnect()
-      } catch (e) {
-        console.error('Disconnect error:', e)
-      }
-    }
-
-    evmAddress.value = null
-    svmAddress.value = null
-  }
-
-  // Disconnect EVM only
+  // Disconnect EVM wallet
   async function disconnectEvm(): Promise<void> {
     if (isLocal.value) {
       evmAddress.value = null
@@ -321,18 +223,15 @@ export function useWallet(networkRef: MaybeRef<NetworkType>) {
       return
     }
 
-    // For external wallets, disconnect via AppKit
-    if (appKitDisconnect) {
-      try {
-        await appKitDisconnect.disconnect()
-      } catch (e) {
-        console.error('EVM disconnect error:', e)
-      }
+    try {
+      await wagmiDisconnect(wagmiConfig)
+    } catch (e) {
+      console.error('EVM disconnect error:', e)
     }
     evmAddress.value = null
   }
 
-  // Disconnect SVM only
+  // Disconnect SVM wallet
   async function disconnectSvm(): Promise<void> {
     if (isLocal.value) {
       svmAddress.value = null
@@ -340,13 +239,10 @@ export function useWallet(networkRef: MaybeRef<NetworkType>) {
       return
     }
 
-    // For external wallets, disconnect via AppKit
-    if (appKitDisconnect) {
-      try {
-        await appKitDisconnect.disconnect()
-      } catch (e) {
-        console.error('SVM disconnect error:', e)
-      }
+    try {
+      await solflare.disconnect()
+    } catch (e) {
+      console.error('SVM disconnect error:', e)
     }
     svmAddress.value = null
   }
@@ -356,7 +252,7 @@ export function useWallet(networkRef: MaybeRef<NetworkType>) {
     if (isLocal.value && localEvmWallet.value) {
       return localEvmWallet.value
     }
-    // For AppKit, the signer would be obtained through wagmi
+    // For external wallets, transactions are signed through the wallet extension
     return null
   }
 
@@ -365,13 +261,19 @@ export function useWallet(networkRef: MaybeRef<NetworkType>) {
     if (isLocal.value && localSvmKeypair.value) {
       return localSvmKeypair.value
     }
-    // For AppKit, signing is handled through the Solana adapter
+    // For external wallets, use solflare.signTransaction()
     return null
   }
 
-  // Get chain config (reactive)
-  const evmChainConfig = computed(() => getEvmChainConfig(currentNetwork.value))
-  const solanaRpc = computed(() => getSolanaRpc(currentNetwork.value))
+  // Get Solflare instance for external wallet signing
+  function getSolflare() {
+    return isLocal.value ? null : solflare
+  }
+
+  // Cleanup on unmount
+  onUnmounted(() => {
+    unwatchWagmi?.()
+  })
 
   return {
     // State
@@ -382,17 +284,13 @@ export function useWallet(networkRef: MaybeRef<NetworkType>) {
     isLocal,
     walletType,
     error,
-    // Config
-    evmChainConfig,
-    solanaRpc,
     // Methods
-    connect,
     connectEvm,
     connectSvm,
-    disconnect,
     disconnectEvm,
     disconnectSvm,
     getEvmSigner,
     getSvmKeypair,
+    getSolflare,
   }
 }

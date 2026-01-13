@@ -2,11 +2,14 @@ import { ref, onMounted } from 'vue'
 
 export interface Asset {
   ticker: string
+  symbol: string
   name: string
   icon: string
   address: string
   decimals: number
-  chain_ids: number[]
+  chainId: number
+  chain: string
+  runtime: 'evm' | 'svm'
 }
 
 export function useAssets() {
@@ -28,8 +31,26 @@ export function useAssets() {
       }
 
       const data = await response.json()
-      assets.value = data
-      return data
+      // Flatten assets: API returns chain_ids array, we need one entry per chainId
+      const flattenedAssets: Asset[] = []
+      for (const item of data) {
+        const chainIds = item.chain_ids as number[]
+        for (const chainId of chainIds) {
+          flattenedAssets.push({
+            ticker: item.ticker as string,
+            symbol: item.ticker as string,
+            name: item.name as string,
+            icon: item.icon as string,
+            address: item.address as string,
+            decimals: item.decimals as number,
+            chainId,
+            chain: getChainName(chainId),
+            runtime: isSolanaChainId(chainId) ? 'svm' : 'evm',
+          })
+        }
+      }
+      assets.value = flattenedAssets
+      return assets.value
     } catch (err) {
       error.value = err instanceof Error ? err.message : 'Failed to fetch assets'
       return []
@@ -38,8 +59,35 @@ export function useAssets() {
     }
   }
 
+  function isSolanaChainId(chainId: number): boolean {
+    // Solana mainnet, devnet, and local chain IDs
+    return chainId === 1399811149 || chainId === 1399811150
+  }
+
+  function getChainName(chainId: number): string {
+    const chainNames: Record<number, string> = {
+      1: 'ethereum',
+      8453: 'base',
+      42161: 'arbitrum',
+      11155111: 'sepolia',
+      84532: 'base-sepolia',
+      1399811149: 'solana',
+      1399811150: 'solana-devnet',
+    }
+    return chainNames[chainId] || 'unknown'
+  }
+
   function getAssetsForChain(chainId: number): Asset[] {
-    return assets.value.filter(asset => asset.chain_ids.includes(chainId))
+    return assets.value.filter(asset => asset.chainId === chainId)
+  }
+
+  function getAssetForChain(ticker: string, chainId: number): Asset | undefined {
+    return assets.value.find(asset => asset.ticker === ticker && asset.chainId === chainId)
+  }
+
+  function getUniqueTickers(): string[] {
+    const tickers = new Set(assets.value.map(asset => asset.ticker))
+    return Array.from(tickers)
   }
 
   onMounted(() => {
@@ -52,5 +100,7 @@ export function useAssets() {
     error,
     fetchAssets,
     getAssetsForChain,
+    getAssetForChain,
+    getUniqueTickers,
   }
 }

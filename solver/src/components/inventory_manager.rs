@@ -290,6 +290,8 @@ impl InventoryManager {
             self.logger,
             "Current signer balances";
             "balances" => ?balance_info,
+            "address" => %self.provider_manager.evm_address,
+            "pubkey" => %self.provider_manager.svm_address
         );
     }
 }

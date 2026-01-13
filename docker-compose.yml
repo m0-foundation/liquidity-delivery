@@ -12,6 +12,7 @@ services:
       -l debug
       -r local-setup
       -a test4MzZzYk2NAP1222FSuKqq83GuXY5tHakqREDHPo
+      -a 24PNhTaNtomHhoy3fTRaMhAFCRj4uHqhZEEoWrKDbR5p
     working_dir: /app
     volumes:
       - ./docker/config/solana-keypair.json:/root/.config/solana/id.json:ro
@@ -25,11 +26,26 @@ services:
       - "8900:8900"
       - "18488:18488"
     healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:8899/health"]
+      test: ["CMD", "curl", "-sf", "-X", "POST", "-H", "Content-Type: application/json", "-d", "{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"getHealth\"}", "http://localhost:8899"]
       interval: 5s
       timeout: 5s
       retries: 10
       start_period: 30s
+    networks:
+      - liquidity-network
+
+  # Solana token funder - funds accounts with USDC via Surfpool cheatcodes
+  solana-funder:
+    image: curlimages/curl:latest
+    container_name: solana-funder
+    depends_on:
+      surfpool:
+        condition: service_healthy
+    entrypoint: ["/bin/sh", "/scripts/fund-solana.sh"]
+    volumes:
+      - ./docker/scripts/fund-solana.sh:/scripts/fund-solana.sh:ro
+    environment:
+      - SURFPOOL_RPC=http://surfpool:8899
     networks:
       - liquidity-network
 

@@ -41,7 +41,7 @@ export function useQuoter() {
           output_chain_id: request.dstChainId,
           input_token: request.srcToken,
           output_token: request.dstToken,
-          amount_in: request.amount,
+          amount_in: parseInt(request.amount),
         }),
       });
 

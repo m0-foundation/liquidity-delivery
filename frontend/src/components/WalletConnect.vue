@@ -22,7 +22,8 @@ const {
   evmConnected,
   svmConnected,
   isLocal,
-  connect,
+  connectEvm,
+  connectSvm,
   disconnectEvm,
   disconnectSvm,
   error
@@ -65,9 +66,9 @@ function getWalletTypeColor(type: 'evm' | 'svm' | 'local'): string {
 
 <template>
   <div class="relative">
-    <!-- Connected State -->
-    <div v-if="evmConnected || svmConnected" class="flex items-center gap-2">
-      <!-- EVM Wallet Display -->
+    <!-- Always show both wallet slots -->
+    <div class="flex items-center gap-2">
+      <!-- EVM Wallet Slot -->
       <div
         v-if="evmAddress"
         class="group flex items-center gap-2 bg-slate-850/80 rounded-xl px-3 py-2 border border-white/5 hover:border-accent-500/30 transition-all duration-200"
@@ -118,8 +119,21 @@ function getWalletTypeColor(type: 'evm' | 'svm' | 'local'): string {
           </svg>
         </button>
       </div>
+      <!-- EVM Connect Button (when not connected) -->
+      <button
+        v-else
+        @click="connectEvm"
+        @mouseenter="isLocal && (showLocalInfo = true)"
+        @mouseleave="showLocalInfo = false"
+        class="flex items-center gap-2 bg-slate-850/80 rounded-xl px-3 py-2 border border-white/5 hover:border-blue-500/30 transition-all duration-200 text-surface-400 hover:text-white"
+      >
+        <div class="w-6 h-6 rounded-lg flex items-center justify-center text-[10px] font-bold text-white bg-gradient-to-br from-blue-500 to-blue-600">
+          E
+        </div>
+        <span class="text-sm">Connect EVM</span>
+      </button>
 
-      <!-- SVM Wallet Display -->
+      <!-- SVM Wallet Slot -->
       <div
         v-if="svmAddress"
         class="group flex items-center gap-2 bg-slate-850/80 rounded-xl px-3 py-2 border border-white/5 hover:border-accent-500/30 transition-all duration-200"
@@ -170,33 +184,20 @@ function getWalletTypeColor(type: 'evm' | 'svm' | 'local'): string {
           </svg>
         </button>
       </div>
-
-      <!-- Add Another Wallet Button (only for non-local mode when not both connected) -->
+      <!-- SVM Connect Button (when not connected) -->
       <button
-        v-if="!isLocal && (!evmConnected || !svmConnected)"
-        @click="connect"
-        class="w-9 h-9 flex items-center justify-center bg-accent-600 hover:bg-accent-500 text-white rounded-xl transition-all duration-200 hover:shadow-glow-sm"
-        title="Connect another wallet"
+        v-else
+        @click="connectSvm"
+        @mouseenter="isLocal && (showLocalInfo = true)"
+        @mouseleave="showLocalInfo = false"
+        class="flex items-center gap-2 bg-slate-850/80 rounded-xl px-3 py-2 border border-white/5 hover:border-purple-500/30 transition-all duration-200 text-surface-400 hover:text-white"
       >
-        <svg class="w-5 h-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-          <path d="M12 4v16m8-8H4" stroke-linecap="round" stroke-linejoin="round"/>
-        </svg>
+        <div class="w-6 h-6 rounded-lg flex items-center justify-center text-[10px] font-bold text-white bg-gradient-to-br from-purple-500 to-purple-600">
+          S
+        </div>
+        <span class="text-sm">Connect Solana</span>
       </button>
     </div>
-
-    <!-- Disconnected State - directly open Reown modal for non-local -->
-    <button
-      v-else
-      @click="connect"
-      @mouseenter="isLocal && (showLocalInfo = true)"
-      @mouseleave="showLocalInfo = false"
-      class="btn-primary px-5 py-2.5 text-sm flex items-center gap-2"
-    >
-      <svg class="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-        <path d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z" stroke-linecap="round" stroke-linejoin="round"/>
-      </svg>
-      {{ isLocal ? 'Connect Local' : 'Connect Wallet' }}
-    </button>
 
     <!-- Local Mode Info Tooltip -->
     <Transition
