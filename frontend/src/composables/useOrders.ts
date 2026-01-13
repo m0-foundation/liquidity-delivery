@@ -18,6 +18,7 @@ export interface OrderDetails {
   version: number
   sender: string
   nonce: number
+  origin_chain_id: number
   dest_chain_id: number
   fill_deadline: number
   cancel_requested_at: number

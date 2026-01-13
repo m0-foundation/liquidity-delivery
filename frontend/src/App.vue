@@ -28,6 +28,11 @@ function selectOrder(orderId: string) {
 function backToOrders() {
   selectedOrderId.value = null
 }
+
+function onOrderCreated(orderId: string) {
+  selectedOrderId.value = orderId
+  activeTab.value = 'orders'
+}
 </script>
 
 <template>
@@ -140,6 +145,7 @@ function backToOrders() {
           :connected="isConnected"
           :evm-address="evmAddress"
           :svm-address="svmAddress"
+          @order-created="onOrderCreated"
         />
 
         <!-- Orders Tab -->

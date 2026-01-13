@@ -162,6 +162,11 @@ impl From<QuoteResponseProto> for QuoteResponse {
             reject_reason: proto.reject_reason,
             solver_address: proto.solver_address,
             requires_exclusivity: proto.requires_exclusivity,
+            // Transaction fields are populated by the API server after receiving the quote
+            order_id: None,
+            evm_transaction: None,
+            svm_transaction: None,
+            nonce: None,
         }
     }
 }

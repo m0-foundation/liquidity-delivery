@@ -3,17 +3,27 @@ import { ref, computed, watch, onUnmounted } from 'vue'
 import { useQuoter } from '../composables/useQuoter'
 import { useAssets } from '../composables/useAssets'
 import { useBalance } from '../composables/useBalance'
+import { useSwap, type ChainType } from '../composables/useSwap'
+import type { Wallet } from 'ethers'
+import type { Keypair } from '@solana/web3.js'
 
 const props = defineProps<{
   network: 'local' | 'devnet' | 'mainnet'
   connected: boolean
   evmAddress: string | null
   svmAddress: string | null
+  evmSigner?: Wallet | null
+  svmKeypair?: Keypair | null
+}>()
+
+const emit = defineEmits<{
+  'order-created': [orderId: string]
 }>()
 
 const { getQuote, loading, error, quote } = useQuoter()
 const { assets, getAssetForChain, getUniqueTickers } = useAssets()
 const { fetchBalance } = useBalance()
+const { executeSwap, loading: swapLoading, error: swapError } = useSwap()
 
 // Form state
 const fromChain = ref('ethereum')
@@ -38,22 +48,22 @@ const toBalanceHovered = ref(false)
 const chains = computed(() => {
   if (props.network === 'local') {
     return [
-      { id: 'ethereum', name: 'Ethereum (Anvil)', chainId: 1, rpc: 'http://localhost:8545', color: 'ethereum' },
-      { id: 'base', name: 'Base (Anvil)', chainId: 8453, rpc: 'http://localhost:8546', color: 'base' },
-      { id: 'solana', name: 'Solana (Surfpool)', chainId: 1399811149, rpc: 'http://localhost:8899', color: 'solana' },
+      { id: 'ethereum', name: 'Ethereum (Anvil)', chainId: 1, rpc: 'http://localhost:8545' },
+      { id: 'base', name: 'Base (Anvil)', chainId: 8453, rpc: 'http://localhost:8546' },
+      { id: 'solana', name: 'Solana (Surfpool)', chainId: 1399811149, rpc: 'http://localhost:8899' },
     ]
   } else if (props.network === 'devnet') {
     return [
-      { id: 'ethereum', name: 'Sepolia', chainId: 11155111, rpc: 'https://sepolia.gateway.tenderly.co', color: 'ethereum' },
-      { id: 'base', name: 'Base Sepolia', chainId: 84532, rpc: 'https://sepolia.base.org', color: 'base' },
-      { id: 'solana', name: 'Solana Devnet', chainId: 1399811150, rpc: 'https://api.devnet.solana.com', color: 'solana' },
+      { id: 'ethereum', name: 'Sepolia', chainId: 11155111, rpc: 'https://sepolia.gateway.tenderly.co'},
+      { id: 'base', name: 'Base Sepolia', chainId: 84532, rpc: 'https://sepolia.base.org'},
+      { id: 'solana', name: 'Solana Devnet', chainId: 1399811150, rpc: 'https://lindsy-gxe51w-fast-devnet.helius-rpc.com'},
     ]
   } else {
     return [
-      { id: 'ethereum', name: 'Ethereum', chainId: 1, rpc: 'https://eth.llamarpc.com', color: 'ethereum' },
-      { id: 'base', name: 'Base', chainId: 8453, rpc: 'https://mainnet.base.org', color: 'base' },
-      { id: 'arbitrum', name: 'Arbitrum', chainId: 42161, rpc: 'https://arb1.arbitrum.io/rpc', color: 'arbitrum' },
-      { id: 'solana', name: 'Solana', chainId: 1399811149, rpc: 'https://api.mainnet-beta.solana.com', color: 'solana' },
+      { id: 'ethereum', name: 'Ethereum', chainId: 1, rpc: 'https://eth.llamarpc.com' },
+      { id: 'base', name: 'Base', chainId: 8453, rpc: 'https://mainnet.base.org' },
+      { id: 'arbitrum', name: 'Arbitrum', chainId: 42161, rpc: 'https://arb1.arbitrum.io/rpc' },
+      { id: 'solana', name: 'Solana', chainId: 1399811149, rpc: 'https://hatty-73mn84-fast-mainnet.helius-rpc.com' },
     ]
   }
 })
@@ -143,12 +153,24 @@ async function requestQuote() {
   // Convert float amount to integer using decimal shift
   const integerAmount = toIntegerAmount(amount.value, srcAsset.decimals)
 
+  // Get sender address based on source chain type
+  const senderAddress = isSolanaChain(fromChain.value)
+    ? props.svmAddress
+    : props.evmAddress
+
+  // Get recipient address based on destination chain type
+  const recipientAddress = isSolanaChain(toChain.value)
+    ? props.svmAddress
+    : props.evmAddress
+
   await getQuote({
     srcChainId: srcChain.chainId,
     dstChainId: dstChain.chainId,
     srcToken: srcAsset.address,
     dstToken: dstAsset.address,
     amount: integerAmount,
+    senderAddress: senderAddress || undefined,
+    recipient: recipientAddress || undefined,
   })
 }
 
@@ -308,6 +330,64 @@ function setMaxFromBalance() {
     amount.value = fromBalance.value.replace(/,/g, '')
   }
 }
+
+// Handle swap execution
+async function handleSwap() {
+  if (!quote.value || !quote.value.orderId) {
+    console.error('No quote or order ID available')
+    return
+  }
+
+  const srcChain = chains.value.find(c => c.id === fromChain.value)
+  if (!srcChain) {
+    console.error('Source chain not found')
+    return
+  }
+
+  try {
+    const chainType: ChainType = isSolanaChain(fromChain.value) ? 'svm' : 'evm'
+
+    const result = await executeSwap(chainType, {
+      evmTransaction: quote.value.evmTransaction,
+      svmTransaction: quote.value.svmTransaction,
+      orderId: quote.value.orderId,
+      contractAddress: getOrderBookAddress(srcChain.chainId),
+      svmRpcUrl: srcChain.rpc,
+      localEvmSigner: props.evmSigner,
+      localSvmKeypair: props.svmKeypair,
+    })
+
+    console.log('Swap executed:', result)
+
+    // Emit order created event to navigate to order details
+    emit('order-created', result.orderId)
+  } catch (err) {
+    console.error('Swap failed:', err)
+  }
+}
+
+// Get the order book contract address for a chain
+function getOrderBookAddress(chainId: number): string {
+  // These should match the quoter config
+  // For now, hardcode the addresses based on network
+  const addresses: Record<number, string> = {
+    // Local (Anvil)
+    1: '0x5FbDB2315678afecb367f032d93F642f64180aa3',
+    8453: '0x5FbDB2315678afecb367f032d93F642f64180aa3',
+    // Devnet
+    11155111: '0x...', // Sepolia
+    84532: '0x...', // Base Sepolia
+    // Mainnet
+    // Add mainnet addresses when deployed
+  }
+  return addresses[chainId] || ''
+}
+
+// Combined loading state
+const isLoading = computed(() => loading.value || swapLoading.value)
+
+// Combined error state
+const displayError = computed(() => error.value || swapError.value)
 </script>
 
 <template>
@@ -595,17 +675,18 @@ function setMaxFromBalance() {
       leave-from-class="opacity-100 scale-100"
       leave-to-class="opacity-0 scale-95"
     >
-      <div v-if="error" class="bg-rose-500/10 border border-rose-500/20 text-rose-300 rounded-xl p-4 mb-4 flex items-start gap-3">
+      <div v-if="displayError" class="bg-rose-500/10 border border-rose-500/20 text-rose-300 rounded-xl p-4 mb-4 flex items-start gap-3">
         <svg class="w-5 h-5 flex-shrink-0 mt-0.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
           <path d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" stroke-linecap="round" stroke-linejoin="round"/>
         </svg>
-        <span class="text-sm">{{ error }}</span>
+        <span class="text-sm">{{ displayError }}</span>
       </div>
     </Transition>
 
     <!-- Swap Button -->
     <button
-      :disabled="!hasAllRequiredWallets || !quote || loading"
+      @click="handleSwap"
+      :disabled="!hasAllRequiredWallets || !quote || isLoading"
       :class="[
         'btn-primary w-full text-lg',
         !hasAllRequiredWallets && 'opacity-60'
@@ -638,6 +719,10 @@ function setMaxFromBalance() {
       <span v-else-if="loading" class="flex items-center justify-center gap-2">
         <div class="loading-spinner"></div>
         Getting Quote...
+      </span>
+      <span v-else-if="swapLoading" class="flex items-center justify-center gap-2">
+        <div class="loading-spinner"></div>
+        Executing Swap...
       </span>
       <span v-else>Swap</span>
     </button>

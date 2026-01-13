@@ -6,6 +6,8 @@ interface QuoteRequest {
   srcToken: string;
   dstToken: string;
   amount: string;
+  senderAddress?: string;
+  recipient?: string;
 }
 
 interface QuoteResponse {
@@ -14,6 +16,10 @@ interface QuoteResponse {
   fee: string;
   estimatedTime: string;
   solver?: string;
+  orderId?: string;
+  evmTransaction?: string;
+  svmTransaction?: string;
+  nonce?: number;
 }
 
 export function useQuoter() {
@@ -42,6 +48,8 @@ export function useQuoter() {
           input_token: request.srcToken,
           output_token: request.dstToken,
           amount_in: parseInt(request.amount),
+          sender_address: request.senderAddress,
+          recipient: request.recipient,
         }),
       });
 
@@ -52,17 +60,32 @@ export function useQuoter() {
 
       const data = await response.json();
 
-      // Check if quote was rejected
-      if (data.rejected) {
-        throw new Error(data.reject_reason || "Quote rejected");
+      // Response is an array of quotes, get the first one
+      const quoteData = Array.isArray(data) ? data[0] : data;
+
+      if (!quoteData) {
+        throw new Error("No quotes available");
       }
 
+      // Check if quote was rejected
+      if (quoteData.rejected) {
+        throw new Error(quoteData.reject_reason || "Quote rejected");
+      }
+
+      const outputAmount = String(quoteData.output_amount ?? quoteData.amount_out ?? "0");
+      const inputAmount = parseInt(request.amount) || 1;
+      const outputAmountNum = parseInt(outputAmount) || 1;
+
       quote.value = {
-        amountOut: data.amount_out || "0",
-        rate: parseInt(request.amount) / parseInt(data.amount_out) || 1,
-        fee: data.fee_bps || "0",
-        estimatedTime: data.estimated_time || data.estimatedTime || "~30s",
-        solver: data.solver,
+        amountOut: outputAmount,
+        rate: inputAmount / outputAmountNum,
+        fee: String(quoteData.fee_bps ?? "0"),
+        estimatedTime: quoteData.est_fill_time_seconds ? `~${quoteData.est_fill_time_seconds}s` : "~30s",
+        solver: quoteData.solver_address || quoteData.solver,
+        orderId: quoteData.quote_id || quoteData.order_id,
+        evmTransaction: quoteData.evm_transaction,
+        svmTransaction: quoteData.svm_transaction,
+        nonce: quoteData.nonce,
       };
 
       return quote.value;

@@ -5188,8 +5188,13 @@ version = "0.1.0"
 dependencies = [
  "alloy",
  "axum",
+ "base64 0.22.1",
+ "bincode",
+ "borsh 1.5.7",
+ "bs58",
  "chrono",
  "futures-util",
+ "hex",
  "prost",
  "serde",
  "serde_json",
@@ -5198,6 +5203,10 @@ dependencies = [
  "slog-async",
  "slog-json",
  "slog-term",
+ "solana-client",
+ "solana-sdk",
+ "spl-associated-token-account 7.0.0",
+ "spl-token 8.0.0",
  "thiserror 1.0.69",
  "tokio",
  "tokio-stream",
@@ -5205,6 +5214,7 @@ dependencies = [
  "tonic-build",
  "tower 0.5.2",
  "tower-http",
+ "url",
  "uuid",
 ]
 

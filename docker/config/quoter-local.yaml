@@ -1,5 +1,4 @@
 chains:
-  # Local Anvil chains
   - chain_id: 1
     enabled: true
     rpc_url: http://anvil-chain-a:8545
@@ -12,6 +11,13 @@ chains:
     rpc_url: http://anvil-chain-b:8545
     ws_url: ws://anvil-chain-b:8545
     order_book_address: "0x5FbDB2315678afecb367f032d93F642f64180aa3"
+    starting_block: 0
+
+  - chain_id: 1399811149
+    enabled: true
+    rpc_url: http://surfpool:8899
+    ws_url: ws://surfpool:8900
+    order_book_address: "MzLoYnJ6sF6eeejs4vV95TNmXqS3W4cAtLGKkjT4ZrK"
     starting_block: 0
 
 assets:

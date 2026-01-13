@@ -5,6 +5,7 @@ mod evm_order_tracker;
 mod grpc_server;
 mod models;
 mod order_store;
+mod transaction_builder;
 
 use std::env;
 use std::sync::Arc;

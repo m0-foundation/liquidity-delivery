@@ -2,6 +2,15 @@ use serde::{Deserialize, Serialize};
 use std::fs;
 use thiserror::Error;
 
+/// Chain type for determining transaction format
+#[derive(Debug, Clone, Deserialize, Default, PartialEq, Eq)]
+#[serde(rename_all = "lowercase")]
+pub enum ChainType {
+    #[default]
+    Evm,
+    Svm,
+}
+
 #[derive(Debug, Clone, Deserialize)]
 pub struct QuoterConfig {
     pub chains: Vec<ChainConfig>,
@@ -29,6 +38,9 @@ pub struct ChainConfig {
     /// Block number to start fetching historical events from (defaults to 0)
     #[serde(default)]
     pub starting_block: u64,
+    /// Chain type for determining transaction format (defaults to EVM)
+    #[serde(default)]
+    pub chain_type: ChainType,
 }
 
 #[derive(Error, Debug)]
