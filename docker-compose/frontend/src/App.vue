@@ -195,10 +195,9 @@ function onOrderCreated(orderId: string) {
 
     <!-- Main Content -->
     <main class="flex-1 flex items-start justify-center px-6 py-10 relative z-10">
-      <div class="w-full max-w-md animate-in">
-        <!-- Swap Tab -->
+      <!-- Swap Tab (constrained width) -->
+      <div v-if="activeTab === 'swap'" class="w-full max-w-md animate-in">
         <SwapWidget
-          v-if="activeTab === 'swap'"
           :network="network"
           :connected="isConnected"
           :evm-address="evmAddress"
@@ -207,22 +206,26 @@ function onOrderCreated(orderId: string) {
           :svm-keypair="svmKeypair"
           @order-created="onOrderCreated"
         />
+      </div>
 
-        <!-- Orders Tab -->
-        <template v-else-if="activeTab === 'orders'">
+      <!-- Orders Tab -->
+      <template v-else-if="activeTab === 'orders'">
+        <!-- Order Detail (wider layout) -->
+        <div v-if="selectedOrderId" class="w-full max-w-5xl animate-in">
           <OrderDetail
-            v-if="selectedOrderId"
             :order-id="selectedOrderId"
             :network="network"
             @back="backToOrders"
           />
+        </div>
+        <!-- Orders List (constrained width) -->
+        <div v-else class="w-full max-w-md animate-in">
           <OrdersPage
-            v-else
             :wallet-address="evmAddress"
             @select-order="selectOrder"
           />
-        </template>
-      </div>
+        </div>
+      </template>
     </main>
 
     <!-- Footer -->

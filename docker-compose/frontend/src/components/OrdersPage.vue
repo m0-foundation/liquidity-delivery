@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { ref, onMounted, computed } from 'vue'
 import { useOrders, type TrackedOrder } from '../composables/useOrders'
+import { useAssets } from '../composables/useAssets'
 
 const props = defineProps<{
   walletAddress: string | null
@@ -11,6 +12,7 @@ const emit = defineEmits<{
 }>()
 
 const { orders, loading, error, fetchOrders, getOrdersBySender } = useOrders()
+const { assets } = useAssets()
 
 const showMyOrdersOnly = ref(false)
 
@@ -39,6 +41,11 @@ function formatAmount(amount: string): string {
   const num = parseInt(amount) / 10**6
   if (isNaN(num)) return amount
   return num.toLocaleString(undefined, { maximumFractionDigits: 6 })
+}
+
+function getTokenTicker(address: string): string {
+  const asset = assets.value.find(a => a.address.toLowerCase() === address.toLowerCase())
+  return asset?.symbol || truncateAddress(address)
 }
 
 function getFillPercentage(order: TrackedOrder): number {
@@ -210,14 +217,14 @@ onMounted(loadOrders)
           <div class="flex items-center justify-between gap-3 overflow-hidden">
             <div class="flex items-center gap-2 min-w-0 flex-1">
               <div class="text-lg font-semibold text-white flex-shrink-0">{{ formatAmount(order.amount_in) }}</div>
-              <span class="text-surface-400 text-sm font-mono truncate" :title="order.token_in">{{ truncateAddress(order.token_in) }}</span>
+              <span class="text-surface-400 text-sm font-medium">{{ getTokenTicker(order.token_in) }}</span>
             </div>
             <svg class="w-5 h-5 text-accent-500 group-hover:translate-x-1 transition-transform flex-shrink-0" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
               <path d="M14 5l7 7m0 0l-7 7m7-7H3" stroke-linecap="round" stroke-linejoin="round"/>
             </svg>
             <div class="flex items-center gap-2 min-w-0 flex-1 justify-end">
-              <span class="text-surface-400 text-sm font-mono truncate" :title="order.token_out">{{ truncateAddress(order.token_out) }}</span>
               <div class="text-lg font-semibold text-white flex-shrink-0">{{ formatAmount(order.amount_out) }}</div>
+              <span class="text-surface-400 text-sm font-medium">{{ getTokenTicker(order.token_out) }}</span>
             </div>
           </div>
 
@@ -251,11 +258,6 @@ onMounted(loadOrders)
             </div>
           </div>
 
-          <!-- Sender -->
-          <div class="mt-3 pt-3 border-t border-white/5 flex items-center justify-between">
-            <span class="text-xs text-surface-500">From</span>
-            <span class="text-xs text-surface-400 font-mono">{{ truncateAddress(order.sender) }}</span>
-          </div>
         </div>
       </TransitionGroup>
     </div>
