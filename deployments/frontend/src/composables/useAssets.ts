@@ -1,4 +1,5 @@
-import { ref, onMounted } from 'vue'
+import { ref, computed, toValue, watch, type MaybeRef } from 'vue'
+import { getAssetsApiUrl, type NetworkType } from '../config/network'
 
 export interface Asset {
   ticker: string
@@ -12,10 +13,10 @@ export interface Asset {
   runtime: 'evm' | 'svm'
 }
 
-// Response type from the mock API
-interface MockAssetResponse {
+// Response type from the API
+interface AssetResponse {
   chain: string
-  chainId: number
+  chainId?: number
   address: string
   symbol: string
   icon: string
@@ -25,28 +26,63 @@ interface MockAssetResponse {
   runtime: 'evm' | 'svm'
 }
 
-export function useAssets() {
+// Map chain names from API to numeric chain IDs
+// The API returns chain names (e.g., "Sepolia", "Solana") but not numeric IDs
+const chainNameToId: Record<NetworkType, Record<string, number>> = {
+  local: {
+    'Ethereum': 1,
+    'Base': 8453,
+    'Solana': 1399811149,
+  },
+  devnet: {
+    'Sepolia': 11155111,
+    'BaseSepolia': 84532,
+    'Base Sepolia': 84532,
+    'ArbitrumSepolia': 421614,
+    'Arbitrum Sepolia': 421614,
+    'Solana': 1399811150,
+  },
+  mainnet: {
+    'Ethereum': 1,
+    'Base': 8453,
+    'Arbitrum': 42161,
+    'Solana': 1399811149,
+  },
+}
+
+function getChainIdFromName(chainName: string, network: NetworkType): number {
+  const chainId = chainNameToId[network]?.[chainName]
+  if (chainId === undefined) {
+    console.warn(`Unknown chain name "${chainName}" for network "${network}"`)
+    return 0
+  }
+  return chainId
+}
+
+export function useAssets(networkRef: MaybeRef<NetworkType>) {
   const assets = ref<Asset[]>([])
   const loading = ref(false)
   const error = ref<string | null>(null)
 
-  const mockApiUrl = import.meta.env.VITE_MOCK_API_URL || 'http://localhost:8080'
+  const assetsApiUrl = computed(() => getAssetsApiUrl(toValue(networkRef)))
 
   async function fetchAssets(): Promise<Asset[]> {
     loading.value = true
     error.value = null
 
     try {
-      const response = await fetch(`${mockApiUrl}/supported-assets`)
+      const response = await fetch(`${assetsApiUrl.value}/supported-assets`)
 
       if (!response.ok) {
         throw new Error(`HTTP ${response.status}`)
       }
 
-      const data: MockAssetResponse[] = await response.json()
+      const data: AssetResponse[] = await response.json()
 
-      // Map mock API response to frontend Asset interface
-      // No flattening needed - mock API already returns flattened data
+      const network = toValue(networkRef)
+
+      // Map API response to frontend Asset interface
+      // Derive chainId from chain name if not provided by API
       assets.value = data.map((item) => ({
         ticker: item.symbol, // Use symbol as ticker
         symbol: item.symbol,
@@ -54,9 +90,9 @@ export function useAssets() {
         icon: item.icon,
         address: item.address,
         decimals: item.decimals,
-        chainId: item.chainId,
-        chain: item.chain, // Already provided by mock API
-        runtime: item.runtime, // Already provided by mock API
+        chainId: item.chainId ?? getChainIdFromName(item.chain, network),
+        chain: item.chain,
+        runtime: item.runtime,
       }))
 
       return assets.value
@@ -81,9 +117,16 @@ export function useAssets() {
     return Array.from(tickers)
   }
 
-  onMounted(() => {
-    fetchAssets()
-  })
+  // Fetch assets when network changes (and on initial mount via immediate: true)
+  watch(
+    () => toValue(networkRef),
+    () => {
+      // Clear stale assets from previous network to prevent chainId mismatches
+      assets.value = []
+      fetchAssets()
+    },
+    { immediate: true }
+  )
 
   return {
     assets,

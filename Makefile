@@ -5,6 +5,7 @@ run-svm-localnet:
 	surfpool start -r deployment -r initialize -a test4MzZzYk2NAP1222FSuKqq83GuXY5tHakqREDHPo --rpc-url https://hatty-73mn84-fast-mainnet.helius-rpc.com
 
 run-local-solver:
+	op inject -f -i deployments/frontend/.env.tpl -o deployments/frontend/.env
 	docker compose -f deployments/docker-compose.yml up -d
 
 restart-solver:
@@ -33,6 +34,13 @@ deploy-quoter:
 	docker push ghcr.io/m0-foundation/liquidity-delivery:quoter-service
 	sleep 1
 	railway redeploy --service Quoter --yes
+
+deploy-dashboard:
+	railway environment devnet
+	docker build --platform linux/amd64 -t ghcr.io/m0-foundation/liquidity-delivery:dashboard -f deployments/frontend/Dockerfile .
+	docker push ghcr.io/m0-foundation/liquidity-delivery:dashboard
+	sleep 1
+	railway redeploy --service "Orders Dashboard" --yes
 
 deploy-orderbook-devnet:
 	anchor build -p order_book

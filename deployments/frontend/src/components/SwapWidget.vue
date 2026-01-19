@@ -1,9 +1,10 @@
 <script setup lang="ts">
-import { ref, computed, watch, onUnmounted } from 'vue'
+import { ref, computed, watch, onUnmounted, toRef } from 'vue'
 import { useQuoter } from '../composables/useQuoter'
 import { useAssets } from '../composables/useAssets'
 import { useBalance } from '../composables/useBalance'
 import { useSwap, type ChainType } from '../composables/useSwap'
+import { getNetworkConfig } from '../config/network'
 import type { Wallet } from 'ethers'
 import type { Keypair } from '@solana/web3.js'
 
@@ -20,8 +21,8 @@ const emit = defineEmits<{
   'order-created': [orderId: string]
 }>()
 
-const { getQuote, loading, error, quote } = useQuoter()
-const { assets, getAssetForChain, getUniqueTickers } = useAssets()
+const { getQuote, loading, error, quote } = useQuoter(toRef(props, 'network'))
+const { assets, getAssetForChain, getUniqueTickers } = useAssets(toRef(props, 'network'))
 const { fetchBalance } = useBalance()
 const { executeSwap, loading: swapLoading, error: swapError } = useSwap()
 
@@ -49,24 +50,23 @@ const redirecting = ref(false)
 
 // Chain options based on network
 const chains = computed(() => {
+  const config = getNetworkConfig(props.network)
+
   if (props.network === 'local') {
     return [
-      { id: 'ethereum', name: 'Ethereum (Anvil)', chainId: 1, rpc: 'http://localhost:8545' },
-      { id: 'base', name: 'Base (Anvil)', chainId: 8453, rpc: 'http://localhost:8546' },
-      { id: 'solana', name: 'Solana (Surfpool)', chainId: 1399811149, rpc: 'http://localhost:8899' },
+      { id: 'ethereum', name: 'Ethereum (Anvil)', chainId: 1, rpc: config.ethereumRpc },
+      { id: 'base', name: 'Base (Anvil)', chainId: 8453, rpc: config.baseRpc || 'http://localhost:8546' },
+      { id: 'solana', name: 'Solana (Surfpool)', chainId: 1399811149, rpc: config.solanaRpc },
     ]
   } else if (props.network === 'devnet') {
     return [
-      { id: 'ethereum', name: 'Sepolia', chainId: 11155111, rpc: 'https://sepolia.gateway.tenderly.co'},
-      { id: 'base', name: 'Base Sepolia', chainId: 84532, rpc: 'https://sepolia.base.org'},
-      { id: 'solana', name: 'Solana Devnet', chainId: 1399811150, rpc: 'https://lindsy-gxe51w-fast-devnet.helius-rpc.com'},
+      { id: 'ethereum', name: 'Sepolia', chainId: 11155111, rpc: config.ethereumRpc },
+      { id: 'solana', name: 'Solana Devnet', chainId: 1399811150, rpc: config.solanaRpc },
     ]
   } else {
     return [
-      { id: 'ethereum', name: 'Ethereum', chainId: 1, rpc: 'https://eth.llamarpc.com' },
-      { id: 'base', name: 'Base', chainId: 8453, rpc: 'https://mainnet.base.org' },
-      { id: 'arbitrum', name: 'Arbitrum', chainId: 42161, rpc: 'https://arb1.arbitrum.io/rpc' },
-      { id: 'solana', name: 'Solana', chainId: 1399811149, rpc: 'https://hatty-73mn84-fast-mainnet.helius-rpc.com' },
+      { id: 'ethereum', name: 'Ethereum', chainId: 1, rpc: config.ethereumRpc },
+      { id: 'solana', name: 'Solana', chainId: 1399811149, rpc: config.solanaRpc },
     ]
   }
 })
@@ -191,7 +191,8 @@ function debouncedRequestQuote() {
 }
 
 // Watch for input changes and trigger debounced quote
-watch([fromChain, toChain, fromToken, toToken, amount], () => {
+// Note: assets and network are included so quotes are fetched once token addresses load from API (on network change)
+watch([fromChain, toChain, fromToken, toToken, amount, assets, () => props.network], () => {
   debouncedRequestQuote()
 })
 
@@ -301,9 +302,9 @@ async function fetchToBalance() {
 }
 
 // Watch for changes that should trigger balance refresh
-// Note: assets is included so balances are fetched once token addresses load from API
+// Note: assets and network are included so balances are fetched once token addresses load from API
 watch(
-  [fromChain, fromToken, () => props.evmAddress, () => props.svmAddress, () => props.connected, assets],
+  [fromChain, fromToken, () => props.evmAddress, () => props.svmAddress, () => props.connected, assets, () => props.network],
   () => {
     if (props.connected) {
       fetchFromBalance()
@@ -315,7 +316,7 @@ watch(
 )
 
 watch(
-  [toChain, toToken, () => props.evmAddress, () => props.svmAddress, () => props.connected, assets],
+  [toChain, toToken, () => props.evmAddress, () => props.svmAddress, () => props.connected, assets, () => props.network],
   () => {
     if (props.connected) {
       fetchToBalance()

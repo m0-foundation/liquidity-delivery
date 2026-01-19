@@ -3,8 +3,9 @@ import { Wallet, JsonRpcProvider } from 'ethers'
 import { Keypair } from '@solana/web3.js'
 import { getAccount, watchAccount, disconnect as wagmiDisconnect, connect as wagmiConnect, getConnectors } from '@wagmi/core'
 import { wagmiConfig, solflare } from '../wallets'
+import { getEthereumRpc, type NetworkType } from '../config/network'
 
-export type NetworkType = 'local' | 'devnet' | 'mainnet'
+export type { NetworkType } from '../config/network'
 
 export interface WalletState {
   evmAddress: string | null
@@ -105,7 +106,7 @@ export function useWallet(networkRef: MaybeRef<NetworkType>) {
     const evmPrivateKey = import.meta.env.VITE_LOCAL_EVM_PRIVATE_KEY
     if (evmPrivateKey) {
       try {
-        const rpcUrl = import.meta.env.VITE_ANVIL_RPC || 'http://localhost:8545'
+        const rpcUrl = getEthereumRpc('local')
         const provider = new JsonRpcProvider(rpcUrl)
         localEvmWallet.value = new Wallet(evmPrivateKey, provider)
         evmAddress.value = localEvmWallet.value.address

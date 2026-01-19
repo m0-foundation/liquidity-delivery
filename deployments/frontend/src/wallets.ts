@@ -1,7 +1,8 @@
 import { createConfig, http } from "@wagmi/core";
-import { mainnet, sepolia } from "@wagmi/core/chains";
+import { mainnet, sepolia, baseSepolia } from "@wagmi/core/chains";
 import { injected } from "@wagmi/connectors";
 import Solflare from "@solflare-wallet/sdk";
+import { getEthereumRpc } from "./config/network";
 
 // Define Base chain
 const base = {
@@ -16,22 +17,25 @@ const base = {
 // Wagmi config for EVM wallet connections
 // Uses injected connector for browser extension wallets (Rabby, MetaMask, etc.)
 export const wagmiConfig = createConfig({
-  chains: [mainnet, sepolia, base],
+  chains: [mainnet, sepolia, base, baseSepolia],
   connectors: [
     injected({
       shimDisconnect: true,
     }),
   ],
   transports: {
-    // For local development, use VITE_ANVIL_RPC to point mainnet (chain 1) to local anvil
+    // Mainnet uses mainnet RPC or falls back to default
     [mainnet.id]: http(
-      import.meta.env.VITE_ANVIL_RPC || undefined
+      getEthereumRpc('mainnet') || undefined
     ),
-    [sepolia.id]: http(),
-    // For local development, use VITE_BASE_LOCAL_RPC to point Base (chain 8453) to local anvil
-    [base.id]: http(
-      import.meta.env.VITE_BASE_LOCAL_RPC || undefined
+    // Sepolia uses devnet Ethereum RPC
+    [sepolia.id]: http(
+      getEthereumRpc('devnet') || undefined
     ),
+    // Base mainnet
+    [base.id]: http(),
+    // Base Sepolia (devnet)
+    [baseSepolia.id]: http(),
   },
 });
 

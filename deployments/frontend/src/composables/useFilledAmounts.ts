@@ -1,5 +1,6 @@
 import { ref } from 'vue'
 import { JsonRpcProvider, Contract } from 'ethers'
+import { getNetworkConfig, type NetworkType } from '../config/network'
 
 // ABI for getFilledAmounts function from IOrderBook
 const ORDERBOOK_ABI = [
@@ -20,19 +21,21 @@ export interface ChainConfig {
 
 // Chain configurations with orderbook addresses
 // These should match the quoter config
-export function getChainConfigs(network: 'local' | 'devnet' | 'mainnet'): ChainConfig[] {
+export function getChainConfigs(network: NetworkType): ChainConfig[] {
+  const config = getNetworkConfig(network)
+
   if (network === 'local') {
     return [
       {
         chainId: 1,
         name: 'Ethereum (Anvil)',
-        rpcUrl: 'http://localhost:8545',
+        rpcUrl: config.ethereumRpc,
         orderbookAddress: '0xCf7Ed3AccA5a467e9e704C703E8D87F634fB0Fc9'
       },
       {
         chainId: 8453,
         name: 'Base (Anvil)',
-        rpcUrl: 'http://localhost:8546',
+        rpcUrl: config.baseRpc || 'http://localhost:8546',
         orderbookAddress: '0xCf7Ed3AccA5a467e9e704C703E8D87F634fB0Fc9'
       }
     ]
@@ -41,7 +44,7 @@ export function getChainConfigs(network: 'local' | 'devnet' | 'mainnet'): ChainC
       {
         chainId: 11155111,
         name: 'Sepolia',
-        rpcUrl: 'https://sepolia.gateway.tenderly.co',
+        rpcUrl: config.ethereumRpc,
         orderbookAddress: import.meta.env.VITE_SEPOLIA_ORDERBOOK_ADDRESS || ''
       },
       {
@@ -56,7 +59,7 @@ export function getChainConfigs(network: 'local' | 'devnet' | 'mainnet'): ChainC
       {
         chainId: 1,
         name: 'Ethereum',
-        rpcUrl: 'https://eth.llamarpc.com',
+        rpcUrl: config.ethereumRpc,
         orderbookAddress: import.meta.env.VITE_ETHEREUM_ORDERBOOK_ADDRESS || ''
       },
       {

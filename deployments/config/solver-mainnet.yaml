@@ -39,7 +39,7 @@ chains:
     rpc_url: https://mainnet.infura.io/v3/YOUR_INFURA_KEY
     ws_url: wss://mainnet.infura.io/ws/v3/YOUR_INFURA_KEY
     order_book_address: "0xYOUR_ORDER_BOOK_ADDRESS"
-    enabled: true
+    enabled: false
 
   # Solana Mainnet
   - chain_id: 1399811149

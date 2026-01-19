@@ -177,7 +177,7 @@ export function useSwap() {
       approvalTransaction,
       svmTransaction,
       orderId,
-      svmRpcUrl = import.meta.env.VITE_SOLANA_RPC || 'http://localhost:8899',
+      svmRpcUrl,
       localEvmSigner,
       localSvmKeypair
     } = options
@@ -190,6 +190,9 @@ export function useSwap() {
     } else {
       if (!svmTransaction) {
         throw new Error('No SVM transaction data available')
+      }
+      if (!svmRpcUrl) {
+        throw new Error('No SVM RPC URL provided')
       }
       return executeSvmSwap(svmTransaction, orderId, svmRpcUrl, localSvmKeypair)
     }

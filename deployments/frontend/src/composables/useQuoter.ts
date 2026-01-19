@@ -1,4 +1,5 @@
-import { ref } from "vue";
+import { ref, computed, toValue, type MaybeRef } from "vue";
+import { getQuoterUrl, type NetworkType } from "../config/network";
 
 interface QuoteRequest {
   srcChainId: number;
@@ -30,12 +31,12 @@ export interface QuoteResponse {
   orderbookAddress?: string;
 }
 
-export function useQuoter() {
+export function useQuoter(networkRef: MaybeRef<NetworkType>) {
   const loading = ref(false);
   const error = ref<string | null>(null);
   const quote = ref<QuoteResponse | null>(null);
 
-  const quoterUrl = import.meta.env.VITE_QUOTER_URL || "http://localhost:3000";
+  const quoterUrl = computed(() => getQuoterUrl(toValue(networkRef)));
 
   async function getQuote(
     request: QuoteRequest
@@ -45,7 +46,7 @@ export function useQuoter() {
     quote.value = null;
 
     try {
-      const response = await fetch(`${quoterUrl}/quote`, {
+      const response = await fetch(`${quoterUrl.value}/quote`, {
         method: "POST",
         headers: {
           "Content-Type": "application/json",

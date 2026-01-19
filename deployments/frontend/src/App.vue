@@ -9,9 +9,7 @@ import OrderDetail from './components/OrderDetail.vue'
 import type { Wallet } from 'ethers'
 import type { Keypair } from '@solana/web3.js'
 
-const network = ref<'local' | 'devnet' | 'mainnet'>(
-  (import.meta.env.VITE_NETWORK as 'local' | 'devnet' | 'mainnet') || 'local'
-)
+const network = ref<'local' | 'devnet' | 'mainnet'>('devnet')
 const evmConnected = ref(false)
 const svmConnected = ref(false)
 const evmAddress = ref<string | null>(null)
