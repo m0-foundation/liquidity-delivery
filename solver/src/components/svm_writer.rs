@@ -21,8 +21,9 @@ use crate::events::{EventHandler, EventProcessor, FillOrderSuccessfulEvent, Solv
 use crate::providers::ProviderManager;
 use crate::stores::OrderStore;
 use crate::utils::{
-    anchor_discriminator, chain_runtime, decode_order_id, derive_wormhole_accounts, find_pda,
-    PORTAL_PROGRAM_ID, WORMHOLE_ADAPTER,
+    anchor_discriminator, build_executor_relay_instruction, chain_runtime, decode_order_id,
+    derive_wormhole_accounts, find_pda, get_wormhole_emitter, get_wormhole_sequence_account,
+    ExecutorRelayParams, PORTAL_PROGRAM_ID, WORMHOLE_ADAPTER,
 };
 
 pub struct SvmWriter {
@@ -255,11 +256,62 @@ impl SvmWriter {
             }
         }
 
-        let ix = Instruction {
+        let fill_ix = Instruction {
             program_id,
             accounts,
             data: ix_data,
         };
+
+        // Build instructions list - fill instruction is always included
+        let mut instructions = vec![fill_ix];
+
+        // If using Wormhole adapter, add request_for_execution instruction
+        if bridge_adapter == WORMHOLE_ADAPTER {
+            // TODO: Obtain these values from the executor quote service
+            let payee = solver_pubkey; // Placeholder - should come from quote.payeeAddress
+            let estimated_cost: u64 = 0; // Placeholder - should come from quote.estimatedCost
+            let signed_quote: Vec<u8> = vec![]; // Placeholder - should come from quote.signedQuote
+            let relay_instructions: Vec<u8> = vec![]; // Placeholder - should come from quote.relayInstructions
+
+            // Fetch the current sequence from the Wormhole sequence account
+            let sequence_account = get_wormhole_sequence_account(dest_chain_id);
+            let sequence_data = rpc_client
+                .get_account_data(&sequence_account)
+                .await
+                .map_err(|e| {
+                    SolverError::Component(format!("Failed to get sequence account: {}", e))
+                })?;
+
+            // Sequence is stored as u64 little-endian
+            let sequence = u64::from_le_bytes(
+                sequence_data[..8]
+                    .try_into()
+                    .map_err(|_| SolverError::Component("Invalid sequence data".to_string()))?,
+            );
+
+            let emitter = get_wormhole_emitter();
+
+            // Wormhole chain IDs: Solana = 1, Ethereum = 2, etc.
+            // TODO: Map dest_chain_id to Wormhole chain ID properly
+            let wormhole_dest_chain_id = dest_chain_id as u16;
+            let wormhole_source_chain_id = 1u16; // Solana
+
+            let relay_ix = build_executor_relay_instruction(ExecutorRelayParams {
+                sender: solver_pubkey,
+                payee,
+                destination_chain_id: wormhole_dest_chain_id,
+                peer_portal: PORTAL_PROGRAM_ID,
+                refund_address: solver_pubkey,
+                estimated_cost,
+                signed_quote,
+                relay_instructions,
+                emitter_chain_id: wormhole_source_chain_id,
+                emitter_address: emitter.to_bytes(),
+                sequence,
+            });
+
+            instructions.push(relay_ix);
+        }
 
         // Build and send transaction
         let recent_blockhash = rpc_client.get_latest_blockhash().await.map_err(|e| {
@@ -267,7 +319,7 @@ impl SvmWriter {
         })?;
 
         let tx = Transaction::new_signed_with_payer(
-            &[ix],
+            &instructions,
             Some(&solver_pubkey),
             &[self.keypair.as_ref()],
             recent_blockhash,
