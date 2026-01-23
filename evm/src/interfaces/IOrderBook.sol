@@ -288,7 +288,7 @@ interface IOrderBook {
      * @param orderId The ID of the order that a cancellation is being reported for
      * @param orderSender The address on the origin chain that created the order
      * @param tokenIn The address of the input token on the origin chain
-     * @param amountInRefund The amount of input token to refund to the order sender on the origin chain
+     * @param amountInToRefund The amount of input token to refund to the order sender on the origin chain
      * The last two are included for non-EVM chains to provide a way to resolve the sender and token
      */
     struct CancelReport {

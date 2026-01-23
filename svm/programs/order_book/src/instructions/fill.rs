@@ -584,7 +584,11 @@ impl ReportOrderFill<'_> {
 
         let status = &self.order.data.status;
 
-        // Validate the order can be filled
+        // Validate the order can be filled.
+        // Note: Fill reports are allowed on Cancelled orders because cross-chain messages
+        // may arrive out of order. A fill that occurred before cancellation on the destination
+        // chain might arrive after the cancel report on the origin chain. The amount tracking
+        // (amount_in_released + amount_in_refunded <= amount_in) prevents over-distribution.
         require!(
             status == &OrderStatus::Created || status == &OrderStatus::Cancelled,
             OrderBookError::OrderNotFillable
