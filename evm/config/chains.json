@@ -18,6 +18,12 @@
       "name": "Base Sepolia",
       "rpcAlias": "base_sepolia",
       "explorerAlias": "base_sepolia"
+    },
+    "solana_devnet": {
+      "chainId": 1399811150,
+      "name": "Solana Devnet",
+      "rpcAlias": "solana_devnet",
+      "explorerAlias": "solana_devnet"
     }
   }
 }
