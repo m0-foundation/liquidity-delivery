@@ -102,10 +102,8 @@ interface IOrderBook {
     error AmountInZero();
     error AmountOutZero();
     error FillAmountZero();
-    error FinalityPending();
     error InvalidDeadline();
     error InvalidDestinationChain();
-    error InvalidFinalityBuffer();
     error InvalidMsgValue();
     error InvalidNonce();
     error InvalidOrderStatus();
@@ -119,7 +117,6 @@ interface IOrderBook {
     error NotAuthorized();
     error OrderExpired();
     error OrderAlreadyExists();
-    error OrderAlreadyFilled();
     error OrderIdMismatch();
     error SameTokenOrder();
     error ZeroAdmin();
