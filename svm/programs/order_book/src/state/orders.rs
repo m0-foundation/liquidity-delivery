@@ -47,7 +47,7 @@ pub struct NativeOrder {
     pub solver: [u8; 32],
     pub amount_in_released: u128,
     pub amount_out_filled: u128,
-    pub amount_in_refunded: u128
+    pub amount_in_refunded: u128,
 }
 
 #[derive(AnchorDeserialize, AnchorSerialize, Clone, InitSpace)]
@@ -55,7 +55,7 @@ pub struct ForeignOrder {
     pub status: OrderStatus,
     pub amount_in_released: u128,
     pub amount_out_filled: u128,
-    pub amount_in_refunded: u128
+    pub amount_in_refunded: u128,
 }
 
 // Note: this must match the EVM version exactly

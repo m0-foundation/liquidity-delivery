@@ -7,7 +7,7 @@ sol! {
         enum OrderStatus {
             DoesNotExist,
             Created,
-            CancelRequested,
+            Cancelled,
             Completed
         }
 
@@ -18,8 +18,8 @@ sol! {
             address sender;
             uint64 nonce;
             uint32 destChainId;
+            uint32 createdAt;
             uint32 fillDeadline;
-            uint32 cancelRequestedAt;
             address tokenIn;
             bytes32 tokenOut;
             uint128 amountIn;
@@ -35,6 +35,7 @@ sol! {
             uint64 nonce;
             uint32 originChainId;
             uint32 destChainId;
+            uint64 createdAt;
             uint64 fillDeadline;
             bytes32 tokenIn;
             bytes32 tokenOut;
@@ -48,10 +49,12 @@ sol! {
         struct FillParams {
             uint128 amountOutToFill;
             bytes32 originRecipient;
+            bytes32 refundAddress;
         }
 
         #[derive(Debug)]
         struct FilledAmounts {
+            uint128 amountInRefunded;
             uint128 amountInReleased;
             uint128 amountOutFilled;
         }
@@ -62,27 +65,33 @@ sol! {
             bytes32 orderId,
             OrderData calldata orderData,
             FillParams calldata fillerParams
-        ) external;
+        ) external payable;
 
-        function getFilledAmounts(bytes32 orderId_) external view override returns (FilledAmounts memory);
+        function getFilledAmounts(bytes32 orderId_) external view returns (FilledAmounts memory);
 
         error AmountInZero();
         error AmountOutZero();
         error FillAmountZero();
-        error FinalityPending();
         error InvalidDeadline();
         error InvalidDestinationChain();
-        error InvalidFinalityBuffer();
+        error InvalidMsgValue();
         error InvalidNonce();
         error InvalidOrderStatus();
         error InvalidOrderVersion();
         error InvalidOriginChain();
         error InvalidRecipient();
+        error InvalidSolver();
         error InvalidReport();
+        error InvalidTimestamp();
+        error InvalidReportSource();
         error NotAuthorized();
         error OrderExpired();
-        error OrderAlreadyFilled();
+        error OrderAlreadyExists();
         error OrderIdMismatch();
+        error SameTokenOrder();
+        error ZeroAdmin();
+        error ZeroPauser();
+        error ZeroPortal();
     }
 }
 

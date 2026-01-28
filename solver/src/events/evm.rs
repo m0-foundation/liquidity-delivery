@@ -21,13 +21,14 @@ sol! {
         bytes32 indexed orderId,
         address indexed solver,
         uint128 amountInToRelease,
-        uint128 amountOutFilled
+        uint128 amountOutFilled,
+        bytes32 indexed messageId
     );
 
     #[derive(Debug)]
-    event CancelRequested(
+    event OrderCancelled(
         bytes32 indexed orderId,
-        uint32 cancelRequestedAt
+        bytes32 indexed messageId
     );
 
     #[derive(Debug)]
@@ -39,6 +40,19 @@ sol! {
 
     #[derive(Debug)]
     event OrderCompleted(
+        bytes32 orderId
+    );
+
+    #[derive(Debug)]
+    event FillReported(
+        bytes32 indexed orderId,
+        address indexed originRecipient,
+        uint128 amountInToRelease,
+        uint128 amountOutFilled
+    );
+
+    #[derive(Debug)]
+    event CancelReported(
         bytes32 indexed orderId
     );
 }

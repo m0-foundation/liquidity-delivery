@@ -58,12 +58,11 @@ impl EventHandler for EventLogger {
                     "reason" => %e.reason,
                 );
             }
-            SolverEvent::OrderCancelRequest(e) => {
+            SolverEvent::OrderCancelled(e) => {
                 info!(
                     self.logger,
-                    "OrderCancelRequest";
+                    "OrderCancelled";
                     "order_id" => %e.order_id,
-                    "requested_at" => e.requested_at,
                     "transaction_hash" => %e.transaction_hash,
                 );
             }

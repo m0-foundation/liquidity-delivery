@@ -388,7 +388,7 @@ impl EventHandler for InventoryManager {
                     return Ok(events);
                 }
             }
-            SolverEvent::OrderCompleted(_) | SolverEvent::OrderCancelRequest(_) => {
+            SolverEvent::OrderCompleted(_) | SolverEvent::OrderCancelled(_) => {
                 let order_id = event.order_id().unwrap();
 
                 // Amount of funds held for the order

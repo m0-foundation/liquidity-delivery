@@ -1,5 +1,5 @@
 mod provider_manager;
-pub(crate) mod signers;
+pub mod signers;
 
 use alloy::{
     network::EthereumWallet,

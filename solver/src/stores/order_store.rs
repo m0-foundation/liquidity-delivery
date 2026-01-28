@@ -121,7 +121,7 @@ impl EventProcessor for OrderStore {
 
                 order.state = OrderState::Rejected;
             }
-            SolverEvent::OrderCancelRequest(e) => {
+            SolverEvent::OrderCancelled(e) => {
                 let order = orders
                     .get_mut(&e.order_id)
                     .ok_or_else(|| SolverError::OrderNotFound(e.order_id.clone()))?;

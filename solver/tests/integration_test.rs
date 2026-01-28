@@ -9,12 +9,12 @@ use alloy::{
     rpc::types::TransactionRequest,
     signers::local::PrivateKeySigner,
     sol,
+    sol_types::SolCall,
 };
 use anchor_client::solana_sdk::signature::Keypair;
-use slog::{info, o, Drain, Logger, OwnedKVList, Record, KV};
+use slog::{info, Drain, Logger, OwnedKVList, Record, KV};
 use solver::{
-    common_logger_values,
-    config::Signers,
+    providers::Signers,
     utils::{chain_from_id, decode_evm_address},
     Config,
 };
@@ -94,6 +94,22 @@ sol!(
     "../evm/out/OrderBook.sol/OrderBook.json"
 );
 
+sol!(
+    #[sol(rpc)]
+    ERC1967Proxy,
+    "tests/artifacts/ERC1967Proxy.json"
+);
+
+mod mock_portal {
+    use alloy::sol;
+    sol!(
+        #[sol(rpc)]
+        MockPortalV2,
+        "tests/artifacts/MockPortalV2.json"
+    );
+}
+use mock_portal::MockPortalV2;
+
 sol! {
     #[sol(rpc)]
     interface MockERC20 {
@@ -130,7 +146,7 @@ impl AsyncTestContext for TestSuite {
             slog_async::Async::new(log_buffer.clone().fuse())
                 .build()
                 .fuse(),
-            common_logger_values!(),
+            slog::o!("component" => "TestSuite"),
         );
 
         let evm_chains = vec![1, 8453];
@@ -173,32 +189,55 @@ impl AsyncTestContext for TestSuite {
                 .wallet(evm_signer.clone())
                 .connect_http(anvil.endpoint_url());
 
-            let contract = OrderBook::deploy(provider.clone(), chain_id, Address::new([0u8; 20]))
+            // Deploy MockPortalV2 first
+            let messenger = MockPortalV2::deploy(&provider)
                 .await
-                .expect("Failed to deploy contract");
+                .expect("Failed to deploy MockPortalV2");
 
-            let &contract_address = contract.address();
+            // Deploy implementation contract
+            let implementation = OrderBook::deploy(provider.clone(), *messenger.address())
+                .await
+                .expect("Failed to deploy implementation");
 
-            // Initialize the contract with admin role
-            contract
-                .initialize(evm_signer.address())
+            // Encode initialization data
+            let init_data = OrderBook::initializeCall {
+                admin: evm_signer.address(),
+                pauser: evm_signer.address(),
+            }
+            .abi_encode();
+
+            // Deploy proxy pointing to implementation with init data
+            let proxy = ERC1967Proxy::deploy(
+                provider.clone(),
+                *implementation.address(),
+                init_data.into(),
+            )
+            .await
+            .expect("Failed to deploy proxy");
+
+            let contract_address = *proxy.address();
+            let contract = OrderBook::new(contract_address, provider.clone());
+
+            // Configure MockPortalV2 with OrderBook address
+            messenger
+                .setOrderBook(contract_address)
                 .send()
                 .await
-                .expect("Failed to send initialize transaction")
+                .expect("Failed to send setOrderBook transaction")
                 .get_receipt()
                 .await
-                .expect("Failed to confirm initialize transaction");
+                .expect("Failed to confirm setOrderBook transaction");
 
-            // Set destination config
+            // Set destination support
             let &dest_chain = evm_chains.get((i + 1) % evm_chains.len()).unwrap_or(&8453);
             contract
-                .setDestinationConfig(dest_chain, true, 10)
+                .setDestinationSupported(dest_chain, true)
                 .send()
                 .await
-                .expect("Failed to send setDestinationConfig transaction for chain 1")
+                .expect("Failed to send setDestinationSupported transaction for chain 1")
                 .get_receipt()
                 .await
-                .expect("Failed to confirm setDestinationConfig transaction for chain 1");
+                .expect("Failed to confirm setDestinationSupported transaction for chain 1");
 
             // Deploy mock tokens for testing
             let mut tokens = Vec::new();
@@ -295,6 +334,8 @@ impl AsyncTestContext for TestSuite {
                 rpc_url: chain.anvil.endpoint_url().to_string(),
                 ws_url: chain.anvil.ws_endpoint_url().to_string(),
                 order_book_address: chain.contract_address.to_string(),
+                portal_program_id: None,
+                bridge_adapter: None,
             });
         }
 
@@ -423,5 +464,5 @@ async fn test_order_rejected(ctx: &TestSuite) {
     .await;
 
     ctx.contains_log("OrderRejected").await;
-    ctx.contains_log("Asset not supported").await;
+    ctx.contains_log("not supported").await;
 }

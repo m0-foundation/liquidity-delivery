@@ -6,7 +6,7 @@ use async_trait::async_trait;
 use futures_util::StreamExt;
 use m0_liquidity_sdk::types::ChainRuntime;
 use order_book::{
-    CancelRequested, FillReported, NativeOrder, Order, OrderCompleted, OrderData, OrderFilled,
+    FillReported, NativeOrder, Order, OrderCancelled, OrderCompleted, OrderData, OrderFilled,
     OrderOpened, RefundClaimed,
 };
 use slog::{error, info, Logger};
@@ -23,7 +23,7 @@ use tokio::task::JoinHandle;
 use crate::config::ChainConfig;
 use crate::error::Result;
 use crate::events::{
-    EventBus, EventHandler, EventProcessor, OrderCancelRequestEvent, OrderCompletedEvent,
+    EventBus, EventHandler, EventProcessor, OrderCancelledEvent, OrderCompletedEvent,
     OrderCreatedEvent, OrderFillEvent, OrderRefundClaimedEvent, SolverEvent,
 };
 use crate::providers::ProviderManager;
@@ -36,7 +36,7 @@ enum OrderBookEvent {
     OrderOpened(OrderOpened),
     OrderFilled(OrderFilled),
     OrderCompleted(OrderCompleted),
-    CancelRequested(CancelRequested),
+    OrderCancelled(OrderCancelled),
     FillReported(FillReported),
     RefundClaimed(RefundClaimed),
 }
@@ -174,13 +174,13 @@ impl SvmEventListener {
                                 );
                             }
                         }
-                    } else if event_discriminator == CancelRequested::DISCRIMINATOR {
-                        match CancelRequested::deserialize(&mut data_slice) {
-                            Ok(event) => events.push(OrderBookEvent::CancelRequested(event)),
+                    } else if event_discriminator == OrderCancelled::DISCRIMINATOR {
+                        match OrderCancelled::deserialize(&mut data_slice) {
+                            Ok(event) => events.push(OrderBookEvent::OrderCancelled(event)),
                             Err(e) => {
                                 error!(
                                     logger,
-                                    "Failed to deserialize CancelRequested event";
+                                    "Failed to deserialize OrderCancelled event";
                                     "signature" => signature,
                                     "error" => %e,
                                 );
@@ -338,10 +338,9 @@ impl SvmEventListener {
                                 signature_str.clone(),
                             ))
                         }
-                        OrderBookEvent::CancelRequested(e) => {
-                            SolverEvent::OrderCancelRequest(OrderCancelRequestEvent::new(
+                        OrderBookEvent::OrderCancelled(e) => {
+                            SolverEvent::OrderCancelled(OrderCancelledEvent::new(
                                 hex::encode(e.order_id),
-                                e.cancel_requested_at,
                                 signature_str.clone(),
                             ))
                         }

@@ -3,11 +3,12 @@
 use alloy::{
     network::TransactionBuilder,
     node_bindings::AnvilInstance,
-    primitives::{Address, FixedBytes, U256},
+    primitives::{Address, Bytes, FixedBytes, U256},
     providers::{Provider, ProviderBuilder},
     rpc::types::TransactionRequest,
     signers::{k256::sha2::digest::Key, local::PrivateKeySigner},
     sol,
+    sol_types::SolCall,
 };
 use anchor_client::{
     solana_sdk::{
@@ -52,15 +53,25 @@ sol!(
 
 sol!(
     #[sol(rpc)]
-    exampleERC20,
-    "tests/artifacts/exampleERC20.json"
+    ERC1967Proxy,
+    "tests/artifacts/ERC1967Proxy.json"
 );
 
 sol!(
     #[sol(rpc)]
-    MockMessenger,
-    "tests/artifacts/MockMessenger.json"
+    exampleERC20,
+    "tests/artifacts/exampleERC20.json"
 );
+
+mod mock_portal {
+    use alloy::sol;
+    sol!(
+        #[sol(rpc)]
+        MockPortalV2,
+        "tests/artifacts/MockPortalV2.json"
+    );
+}
+use mock_portal::MockPortalV2;
 
 pub use IOrderBook::OrderParams;
 
@@ -266,18 +277,36 @@ impl BaseTestSuite {
                 .wallet(evm_signer.clone())
                 .connect_http(anvil.endpoint_url());
 
-            // Deploy MockMessenger first
-            let messenger = MockMessenger::deploy(&provider)
+            // Deploy MockPortalV2 first
+            let messenger = MockPortalV2::deploy(&provider)
                 .await
-                .expect("Failed to deploy MockMessenger");
+                .expect("Failed to deploy MockPortalV2");
 
-            let contract = IOrderBook::deploy(provider.clone(), chain_id, *messenger.address())
+            // Deploy implementation contract
+            let implementation = IOrderBook::deploy(provider.clone(), *messenger.address())
                 .await
-                .expect("Failed to deploy contract");
+                .expect("Failed to deploy implementation");
 
-            let &contract_address = contract.address();
+            // Encode initialization data
+            let init_data = IOrderBook::initializeCall {
+                admin: evm_signer.address(),
+                pauser: evm_signer.address(),
+            }
+            .abi_encode();
 
-            // Configure MockMessenger with OrderBook address
+            // Deploy proxy pointing to implementation with init data
+            let proxy = ERC1967Proxy::deploy(
+                provider.clone(),
+                *implementation.address(),
+                init_data.into(),
+            )
+            .await
+            .expect("Failed to deploy proxy");
+
+            let contract_address = *proxy.address();
+            let contract = IOrderBook::new(contract_address, provider.clone());
+
+            // Configure MockPortalV2 with OrderBook address
             messenger
                 .setOrderBook(contract_address)
                 .send()
@@ -287,26 +316,16 @@ impl BaseTestSuite {
                 .await
                 .expect("Failed to confirm setOrderBook transaction");
 
-            // Initialize the contract with admin role
-            contract
-                .initialize(evm_signer.address())
-                .send()
-                .await
-                .expect("Failed to send initialize transaction")
-                .get_receipt()
-                .await
-                .expect("Failed to confirm initialize transaction");
-
-            // Set destination config
+            // Set destination support
             let &dest_chain = evm_chains.get((i + 1) % evm_chains.len()).unwrap_or(&8453);
             contract
-                .setDestinationConfig(dest_chain, true, 10)
+                .setDestinationSupported(dest_chain, true)
                 .send()
                 .await
-                .expect("Failed to send setDestinationConfig transaction for chain 1")
+                .expect("Failed to send setDestinationSupported transaction for chain 1")
                 .get_receipt()
                 .await
-                .expect("Failed to confirm setDestinationConfig transaction for chain 1");
+                .expect("Failed to confirm setDestinationSupported transaction for chain 1");
 
             // Deploy mock tokens for testing
             let mut tokens = Vec::new();
@@ -559,6 +578,36 @@ impl BaseTestSuite {
         }
     }
 
+    /// Extract the order ID from the first OrderCreated event in the logs
+    pub async fn get_order_id_from_logs(&self) -> String {
+        let timeout = Duration::from_secs(10);
+        let poll_interval = Duration::from_millis(50);
+        let start = std::time::Instant::now();
+
+        // Pattern to match order_id in OrderCreated event
+        let re = Regex::new(r"OrderCreated.*order_id=([a-f0-9]{64})").unwrap();
+
+        while start.elapsed() < timeout {
+            let logs = self.log_buffer.to_string();
+            if let Some(caps) = re.captures(&logs) {
+                return caps.get(1).unwrap().as_str().to_string();
+            }
+            sleep(poll_interval).await;
+        }
+
+        panic!("Could not find OrderCreated event with order_id in logs");
+    }
+
+    /// Wait for and verify order lifecycle events (dynamically extracts order_id)
+    pub async fn wait_for_order_lifecycle(&self, events: &[&str]) {
+        let order_id = self.get_order_id_from_logs().await;
+        let mut start_index: usize = 0;
+        for &event in events {
+            let pattern = format!("{} .* order_id={}", event, order_id);
+            start_index = self.contains_log_from_index(&pattern, start_index).await;
+        }
+    }
+
     pub async fn create_order(
         &self,
         chain: &ChainInstance,
@@ -615,6 +664,10 @@ impl BaseTestSuite {
             &order_book::instructions::open::OrderParams {
                 token_out: decode_address(token_out, dest_chain_id).unwrap(),
                 dest_chain_id,
+                created_at: std::time::SystemTime::now()
+                    .duration_since(std::time::UNIX_EPOCH)
+                    .unwrap()
+                    .as_secs(),
                 amount_in,
                 amount_out: amount_out as u128,
                 recipient: decode_evm_address(self.evm_user.address()),

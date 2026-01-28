@@ -41,6 +41,7 @@ pub async fn create_open_order(
         nonce: sender_nonce,
         origin_chain_id: 1399811149,
         dest_chain_id: order_params.dest_chain_id,
+        created_at: order_params.created_at,
         fill_deadline: order_params.fill_deadline,
         token_in: token_in_mint.to_bytes(),
         token_out: order_params.token_out,

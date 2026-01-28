@@ -20,9 +20,9 @@ use crate::config::{ChainConfig, Network};
 use crate::contracts::evm::IOrderBook;
 use crate::error::{Result, SolverError};
 use crate::events::{
-    CancelRequested, EventBus, EventHandler, EventProcessor, OrderCancelRequestEvent,
-    OrderCompleted, OrderCompletedEvent, OrderCreatedEvent, OrderFillEvent, OrderFilled,
-    OrderOpened, OrderRefundClaimedEvent, RefundClaimed, SolverEvent,
+    EventBus, EventHandler, EventProcessor, OrderCancelled, OrderCancelledEvent, OrderCompleted,
+    OrderCompletedEvent, OrderCreatedEvent, OrderFillEvent, OrderFilled, OrderOpened,
+    OrderRefundClaimedEvent, RefundClaimed, SolverEvent,
 };
 use crate::stores::OrderStore;
 use crate::utils::{chain_runtime, decode_evm_address, unix_timestamp_secs};
@@ -121,7 +121,7 @@ impl EvmEventListener {
             .event_signature(vec![
                 OrderOpened::SIGNATURE_HASH,
                 OrderFilled::SIGNATURE_HASH,
-                CancelRequested::SIGNATURE_HASH,
+                OrderCancelled::SIGNATURE_HASH,
                 RefundClaimed::SIGNATURE_HASH,
                 OrderCompleted::SIGNATURE_HASH,
             ]);
@@ -274,7 +274,7 @@ impl EvmEventListener {
             .event_signature(vec![
                 OrderOpened::SIGNATURE_HASH,
                 OrderFilled::SIGNATURE_HASH,
-                CancelRequested::SIGNATURE_HASH,
+                OrderCancelled::SIGNATURE_HASH,
                 RefundClaimed::SIGNATURE_HASH,
                 OrderCompleted::SIGNATURE_HASH,
             ]);
@@ -374,8 +374,8 @@ impl EvmEventListener {
             return Ok(Some(event));
         } else if event_signature == OrderFilled::SIGNATURE_HASH {
             return Ok(Some(Self::handle_fill(&log_data, transaction_hash)?));
-        } else if event_signature == CancelRequested::SIGNATURE_HASH {
-            return Ok(Some(Self::handle_cancel_request(
+        } else if event_signature == OrderCancelled::SIGNATURE_HASH {
+            return Ok(Some(Self::handle_order_cancelled(
                 &log_data,
                 transaction_hash,
             )?));
@@ -417,16 +417,17 @@ impl EvmEventListener {
 
         let order = OrderData {
             version: order_result.version,
-            origin_chain_id: chain_id,
             sender: decode_evm_address(event.sender),
             nonce: order_result.nonce,
+            origin_chain_id: chain_id,
             dest_chain_id: event.destChainId,
+            created_at: order_result.createdAt as u64,
             fill_deadline: order_result.fillDeadline as u64,
             token_in: decode_evm_address(event.tokenIn),
             token_out: event.tokenOut.into(),
-            recipient: order_result.recipient.into(),
             amount_in: event.amountIn,
             amount_out: event.amountOut,
+            recipient: order_result.recipient.into(),
             solver: event.solver.into(),
         };
 
@@ -447,19 +448,15 @@ impl EvmEventListener {
         Ok(SolverEvent::OrderFill(fill_event))
     }
 
-    fn handle_cancel_request(log: &Log, transaction_hash: String) -> Result<SolverEvent> {
-        let event = CancelRequested::decode_log(log).map_err(|e| {
-            SolverError::Component(format!("Failed to decode CancelRequest: {}", e))
+    fn handle_order_cancelled(log: &Log, transaction_hash: String) -> Result<SolverEvent> {
+        let event = OrderCancelled::decode_log(log).map_err(|e| {
+            SolverError::Component(format!("Failed to decode OrderCancelled: {}", e))
         })?;
 
         let order_id = format!("{:x}", event.orderId);
-        let cancel_event = OrderCancelRequestEvent::new(
-            order_id,
-            event.cancelRequestedAt as u64,
-            transaction_hash,
-        );
+        let cancel_event = OrderCancelledEvent::new(order_id, transaction_hash);
 
-        Ok(SolverEvent::OrderCancelRequest(cancel_event))
+        Ok(SolverEvent::OrderCancelled(cancel_event))
     }
 
     fn handle_refund_claimed(log: &Log, transaction_hash: String) -> Result<SolverEvent> {

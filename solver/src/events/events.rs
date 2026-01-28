@@ -57,7 +57,7 @@ pub enum SolverEvent {
     OrderCreated(OrderCreatedEvent),
     OrderFill(OrderFillEvent),
     OrderRejected(OrderRejectEvent),
-    OrderCancelRequest(OrderCancelRequestEvent),
+    OrderCancelled(OrderCancelledEvent),
     OrderRefundClaimed(OrderRefundClaimedEvent),
     OrderCompleted(OrderCompletedEvent),
 
@@ -84,7 +84,7 @@ impl SolverEvent {
             SolverEvent::OrderCreated(e) => Some(e.order_id.clone()),
             SolverEvent::OrderFill(e) => Some(e.order_id.clone()),
             SolverEvent::OrderRejected(e) => Some(e.order_id.clone()),
-            SolverEvent::OrderCancelRequest(e) => Some(e.order_id.clone()),
+            SolverEvent::OrderCancelled(e) => Some(e.order_id.clone()),
             SolverEvent::OrderRefundClaimed(e) => Some(e.order_id.clone()),
             SolverEvent::OrderCompleted(e) => Some(e.order_id.clone()),
             SolverEvent::RequestHold(e) => Some(e.order_id.clone()),
@@ -154,17 +154,15 @@ impl OrderRejectEvent {
 
 /// Event: Order cancel requested
 #[derive(Debug, Clone)]
-pub struct OrderCancelRequestEvent {
+pub struct OrderCancelledEvent {
     pub order_id: String,
-    pub requested_at: u64,
     pub transaction_hash: String,
 }
 
-impl OrderCancelRequestEvent {
-    pub fn new(order_id: String, requested_at: u64, transaction_hash: String) -> Self {
+impl OrderCancelledEvent {
+    pub fn new(order_id: String, transaction_hash: String) -> Self {
         Self {
             order_id,
-            requested_at,
             transaction_hash,
         }
     }
