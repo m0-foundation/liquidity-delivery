@@ -9,7 +9,7 @@ variable "orderbook_program" {
 variable "orderbook_global" {
     value = svm::find_pda("MzLoYnJ6sF6eeejs4vV95TNmXqS3W4cAtLGKkjT4ZrK", ["global"])
 }
-variable "messenger_authority" {
+variable "portal_authority" {
     value = svm::find_pda("MzBrgc8yXBj4P16GTkcSyDZkEQZB9qDqf3fh9bByJce", ["authority"])
 }
 
@@ -36,7 +36,7 @@ action "initialize_orderbook" "svm::process_instructions" {
         admin {
             public_key = signer.caller.public_key
         }
-        instruction_args = [input.chain_id, variable.messenger_authority.pda]
+        instruction_args = [input.chain_id, variable.portal_authority.pda]
     }
     pre_condition {
         behavior = "skip"
