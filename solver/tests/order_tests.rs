@@ -55,8 +55,8 @@ async fn test_order_processed_chain_b(ctx: &EvmChainTestSuite) {
 
     ctx.create_order(
         chain_a,
-        chain_a.tokens[0].address.clone(),
-        chain_b.tokens[1].address.clone(),
+        chain_a.tokens[1].address.clone(),
+        chain_b.tokens[0].address.clone(),
         chain_b.chain_id,
         500000,
         500000,

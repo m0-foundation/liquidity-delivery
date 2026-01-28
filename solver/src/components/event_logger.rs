@@ -89,7 +89,7 @@ impl EventHandler for EventLogger {
                     self.logger,
                     "RequestHold";
                     "order_id" => %e.order_id,
-                    "asset" => ?e.asset,
+                    "asset" => ?e.asset.symbol,
                     "amount" => %e.amount,
                 );
             }
