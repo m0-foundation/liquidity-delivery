@@ -82,6 +82,10 @@ impl OrderProcessor {
             return Err("At least one asset must be an M0 extension".to_string());
         }
 
+        if input_asset == output_asset {
+            return Err("Must be different assets or different chains".to_string());
+        }
+
         Ok((input_asset, output_asset))
     }
 

@@ -28,7 +28,7 @@ impl EventBus {
         let sender = self.sender.clone();
 
         tokio::spawn(async move {
-            let mut interval = tokio::time::interval(tokio::time::Duration::from_secs(1));
+            let mut interval = tokio::time::interval(tokio::time::Duration::from_secs(5));
 
             loop {
                 interval.tick().await;

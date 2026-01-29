@@ -5,7 +5,10 @@ use anchor_client::{
 use async_trait::async_trait;
 use futures_util::StreamExt;
 use m0_liquidity_sdk::types::ChainRuntime;
-use order_book::{NativeOrder, Order, OrderData, OrderOpened};
+use order_book::{
+    FillReported, NativeOrder, Order, OrderCancelled, OrderCompleted, OrderData, OrderFilled,
+    OrderOpened, RefundClaimed,
+};
 use slog::{error, info, Logger};
 use solana_client::rpc_config::{RpcTransactionLogsConfig, RpcTransactionLogsFilter};
 use solana_transaction_status_client_types::{
@@ -17,13 +20,26 @@ use std::sync::Arc;
 use tokio::sync::RwLock;
 use tokio::task::JoinHandle;
 
-use crate::components::ComponentParams;
 use crate::config::ChainConfig;
 use crate::error::Result;
-use crate::events::{EventBus, EventHandler, EventProcessor, OrderCreatedEvent, SolverEvent};
+use crate::events::{
+    EventBus, EventHandler, EventProcessor, OrderCancelledEvent, OrderCompletedEvent,
+    OrderCreatedEvent, OrderFillEvent, OrderRefundClaimedEvent, SolverEvent,
+};
 use crate::providers::ProviderManager;
 use crate::stores::OrderStore;
 use crate::utils::chain_runtime;
+use crate::{components::ComponentParams, utils::unix_timestamp_secs};
+
+/// Enum representing all events emitted by the order_book program
+enum OrderBookEvent {
+    OrderOpened(OrderOpened),
+    OrderFilled(OrderFilled),
+    OrderCompleted(OrderCompleted),
+    OrderCancelled(OrderCancelled),
+    FillReported(FillReported),
+    RefundClaimed(RefundClaimed),
+}
 
 pub struct SvmEventListener {
     event_bus: Arc<EventBus>,
@@ -84,19 +100,25 @@ impl EventHandler for SvmEventListener {
 }
 
 impl SvmEventListener {
-    /// Parse OrderOpened event from transaction inner instructions
-    fn parse_order_opened_event(
+    /// Parse all order_book events from transaction inner instructions
+    fn parse_order_book_events(
         tx: &EncodedConfirmedTransactionWithStatusMeta,
         logger: &Logger,
         signature: &str,
-    ) -> Option<OrderOpened> {
-        let target_discriminator: [u8; 8] = [228, 69, 165, 46, 81, 203, 154, 29];
-        let order_event_discriminator = OrderOpened::DISCRIMINATOR;
+    ) -> Vec<OrderBookEvent> {
+        // Anchor event CPI discriminator (used for emit_cpi!)
+        let anchor_event_discriminator: [u8; 8] = [228, 69, 165, 46, 81, 203, 154, 29];
 
-        let meta = tx.transaction.meta.as_ref()?;
+        let mut events = Vec::new();
+
+        let meta = match tx.transaction.meta.as_ref() {
+            Some(meta) => meta,
+            None => return events,
+        };
+
         let inner = match &meta.inner_instructions {
             option_serializer::OptionSerializer::Some(inner) => inner,
-            _ => return None,
+            _ => return events,
         };
 
         for ui_inner in inner {
@@ -107,32 +129,93 @@ impl SvmEventListener {
                         Err(_) => continue,
                     };
 
-                    if decoded_data.len() < 16
-                        || decoded_data[0..8] != target_discriminator
-                        || &decoded_data[8..16] != order_event_discriminator
-                    {
+                    // Check for Anchor event CPI discriminator
+                    if decoded_data.len() < 16 || decoded_data[0..8] != anchor_event_discriminator {
                         continue;
                     }
 
+                    let event_discriminator = &decoded_data[8..16];
                     let mut data_slice = &decoded_data[16..];
-                    match OrderOpened::deserialize(&mut data_slice) {
-                        Ok(event) => {
-                            return Some(event);
+
+                    // Try to parse each event type based on discriminator
+                    if event_discriminator == OrderOpened::DISCRIMINATOR {
+                        match OrderOpened::deserialize(&mut data_slice) {
+                            Ok(event) => events.push(OrderBookEvent::OrderOpened(event)),
+                            Err(e) => {
+                                error!(
+                                    logger,
+                                    "Failed to deserialize OrderOpened event";
+                                    "signature" => signature,
+                                    "error" => %e,
+                                );
+                            }
                         }
-                        Err(e) => {
-                            error!(
-                                logger,
-                                "Failed to deserialize OrderOpened event";
-                                "signature" => signature,
-                                "error" => %e,
-                            );
+                    } else if event_discriminator == OrderFilled::DISCRIMINATOR {
+                        match OrderFilled::deserialize(&mut data_slice) {
+                            Ok(event) => events.push(OrderBookEvent::OrderFilled(event)),
+                            Err(e) => {
+                                error!(
+                                    logger,
+                                    "Failed to deserialize OrderFilled event";
+                                    "signature" => signature,
+                                    "error" => %e,
+                                );
+                            }
+                        }
+                    } else if event_discriminator == OrderCompleted::DISCRIMINATOR {
+                        match OrderCompleted::deserialize(&mut data_slice) {
+                            Ok(event) => events.push(OrderBookEvent::OrderCompleted(event)),
+                            Err(e) => {
+                                error!(
+                                    logger,
+                                    "Failed to deserialize OrderCompleted event";
+                                    "signature" => signature,
+                                    "error" => %e,
+                                );
+                            }
+                        }
+                    } else if event_discriminator == OrderCancelled::DISCRIMINATOR {
+                        match OrderCancelled::deserialize(&mut data_slice) {
+                            Ok(event) => events.push(OrderBookEvent::OrderCancelled(event)),
+                            Err(e) => {
+                                error!(
+                                    logger,
+                                    "Failed to deserialize OrderCancelled event";
+                                    "signature" => signature,
+                                    "error" => %e,
+                                );
+                            }
+                        }
+                    } else if event_discriminator == FillReported::DISCRIMINATOR {
+                        match FillReported::deserialize(&mut data_slice) {
+                            Ok(event) => events.push(OrderBookEvent::FillReported(event)),
+                            Err(e) => {
+                                error!(
+                                    logger,
+                                    "Failed to deserialize FillReported event";
+                                    "signature" => signature,
+                                    "error" => %e,
+                                );
+                            }
+                        }
+                    } else if event_discriminator == RefundClaimed::DISCRIMINATOR {
+                        match RefundClaimed::deserialize(&mut data_slice) {
+                            Ok(event) => events.push(OrderBookEvent::RefundClaimed(event)),
+                            Err(e) => {
+                                error!(
+                                    logger,
+                                    "Failed to deserialize RefundClaimed event";
+                                    "signature" => signature,
+                                    "error" => %e,
+                                );
+                            }
                         }
                     }
                 }
             }
         }
 
-        None
+        events
     }
 
     fn start_event_listener(&self, chain: &ChainConfig) {
@@ -180,15 +263,6 @@ impl SvmEventListener {
 
             while let Some(log_update) = log_stream.next().await {
                 let signature_str = log_update.value.signature;
-                let logs = log_update.value.logs;
-
-                // Check for open_order call in logs
-                if !logs
-                    .iter()
-                    .any(|log| log.contains("Program log: Instruction: OpenOrder"))
-                {
-                    continue;
-                }
 
                 let signature = Signature::from_str(&signature_str).unwrap();
                 let rpc_client = provider.client().await;
@@ -211,51 +285,90 @@ impl SvmEventListener {
                     }
                 };
 
-                // Parse OrderOpened event from transaction
-                let Some(event) = Self::parse_order_opened_event(&tx, &logger, &signature_str)
-                else {
-                    continue;
-                };
+                // Parse all order_book events from transaction
+                let events = Self::parse_order_book_events(&tx, &logger, &signature_str);
 
-                // Fetch data from order PDA
-                let (order_account, _) = Pubkey::find_program_address(
-                    &[order_book::state::ORDER_SEED_PREFIX, &event.order_id[..]],
-                    &program_id,
-                );
-
-                let order =
-                    match rpc_client
-                        .get_account_data(&order_account)
-                        .await
-                        .and_then(|data| {
-                            let mut slice = &data[8..];
-                            Order::<NativeOrder>::deserialize(&mut slice).map_err(|e| e.into())
-                        }) {
-                        Ok(order) => order,
-                        Err(e) => {
-                            error!(
-                                logger,
-                                "Failed to fetch or deserialize order data";
-                                "order_id" => hex::encode(event.order_id),
-                                "error" => %e,
+                for event in events {
+                    let solver_event = match event {
+                        OrderBookEvent::OrderOpened(e) => {
+                            // Fetch data from order PDA for OrderOpened events
+                            let (order_account, _) = Pubkey::find_program_address(
+                                &[order_book::state::ORDER_SEED_PREFIX, &e.order_id[..]],
+                                &program_id,
                             );
-                            continue;
+
+                            let order = match rpc_client
+                                .get_account_data(&order_account)
+                                .await
+                                .and_then(|data| {
+                                    let mut slice = &data[8..];
+                                    Order::<NativeOrder>::deserialize(&mut slice)
+                                        .map_err(|e| e.into())
+                                }) {
+                                Ok(order) => order,
+                                Err(err) => {
+                                    error!(
+                                        logger,
+                                        "Failed to fetch or deserialize order data";
+                                        "order_id" => hex::encode(e.order_id),
+                                        "error" => %err,
+                                    );
+                                    continue;
+                                }
+                            };
+
+                            SolverEvent::OrderCreated(OrderCreatedEvent::new(
+                                OrderData::new_from_native_order(order.data, chain_id),
+                                signature_str.clone(),
+                                tx.block_time
+                                    .map(|t| t as u64)
+                                    .unwrap_or_else(unix_timestamp_secs),
+                            ))
+                        }
+                        OrderBookEvent::OrderFilled(e) => {
+                            SolverEvent::OrderFill(OrderFillEvent::new(
+                                hex::encode(e.order_id),
+                                e.amount_out_filled,
+                                signature_str.clone(),
+                            ))
+                        }
+                        OrderBookEvent::OrderCompleted(e) => {
+                            SolverEvent::OrderCompleted(OrderCompletedEvent::new(
+                                hex::encode(e.order_id),
+                                signature_str.clone(),
+                            ))
+                        }
+                        OrderBookEvent::OrderCancelled(e) => {
+                            SolverEvent::OrderCancelled(OrderCancelledEvent::new(
+                                hex::encode(e.order_id),
+                                signature_str.clone(),
+                            ))
+                        }
+                        OrderBookEvent::FillReported(e) => {
+                            SolverEvent::OrderFill(OrderFillEvent::new(
+                                hex::encode(e.order_id),
+                                e.amount_out_filled,
+                                signature_str.clone(),
+                            ))
+                        }
+                        OrderBookEvent::RefundClaimed(e) => {
+                            SolverEvent::OrderRefundClaimed(OrderRefundClaimedEvent::new(
+                                hex::encode(e.order_id),
+                                e.sender.to_string(),
+                                e.amount as u128,
+                                signature_str.clone(),
+                            ))
                         }
                     };
 
-                let order_event =
-                    OrderCreatedEvent::new(OrderData::new_from_native_order(order.data, chain_id));
-
-                if let Err(e) = event_bus
-                    .publish(SolverEvent::OrderCreated(order_event))
-                    .await
-                {
-                    error!(
-                        logger,
-                        "Failed to publish OrderCreated event";
-                        "chain_id" => %chain_id,
-                        "error" => %e,
-                    );
+                    if let Err(e) = event_bus.publish(solver_event).await {
+                        error!(
+                            logger,
+                            "Failed to publish event";
+                            "chain_id" => %chain_id,
+                            "error" => %e,
+                        );
+                    }
                 }
             }
         });

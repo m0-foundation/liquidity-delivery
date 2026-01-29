@@ -5,15 +5,13 @@ use std::sync::Arc;
 
 use alloy::primitives::Address;
 use alloy::providers::Provider;
-use anchor_client::solana_client::rpc_config::{RpcAccountInfoConfig, RpcProgramAccountsConfig};
-use anchor_client::solana_client::rpc_filter::{Memcmp, RpcFilterType};
-use anchor_client::solana_sdk::commitment_config::CommitmentConfig;
+use anchor_client::solana_account_decoder::UiAccountData;
 use anchor_client::solana_sdk::pubkey::Pubkey;
 use async_trait::async_trait;
 use futures_util::future::join_all;
 use m0_liquidity_sdk::types::{Asset, Chain, ChainRuntime};
 use slog::{debug, error, info, warn, Logger};
-use spl_token::solana_program::program_pack::Pack;
+use solana_client::rpc_request::TokenAccountsFilter;
 use tokio::sync::Mutex;
 
 use crate::components::ComponentParams;
@@ -21,7 +19,8 @@ use crate::config::ChainConfig;
 use crate::contracts::IERC20;
 use crate::error::{Result, SolverError};
 use crate::events::{
-    EventHandler, EventProcessor, HoldSuccessfulEvent, RequestSwapEvent, SolverEvent,
+    EventHandler, EventProcessor, HoldSuccessfulEvent, InventoryUpdateEvent, RequestSwapEvent,
+    SolverEvent,
 };
 use crate::providers::ProviderManager;
 use crate::stores::{AssetStore, OrderStore};
@@ -97,50 +96,36 @@ impl InventoryManager {
                 spl_token::ID,
                 Pubkey::from_str("TokenzQdBNbLqP5VEhdkAS6EPFLC1PHnBqCXEpPxuEb").unwrap(),
             ] {
-                let config = RpcProgramAccountsConfig {
-                    filters: Some(vec![
-                        // Filter by owner
-                        RpcFilterType::Memcmp(Memcmp::new_raw_bytes(
-                            32,
-                            address.to_bytes().to_vec(),
-                        )),
-                        // Filter by data length (165 bytes for token accounts)
-                        RpcFilterType::DataSize(165),
-                    ]),
-                    account_config: RpcAccountInfoConfig {
-                        encoding: None,
-                        data_slice: None,
-                        commitment: Some(CommitmentConfig::confirmed()),
-                        min_context_slot: None,
-                    },
-                    with_context: Some(false),
-                    sort_results: None,
-                };
-
                 match client
-                    .get_program_accounts_with_config(&token_program, config)
+                    .get_token_accounts_by_owner(
+                        &address,
+                        TokenAccountsFilter::ProgramId(token_program),
+                    )
                     .await
                 {
-                    Ok(accounts) => {
-                        for (pubkey, account) in accounts {
-                            let account = spl_token::state::Account::unpack(&account.data[..]);
+                    Ok(response) => {
+                        for keyed_account in response {
+                            let data = match keyed_account.account.data {
+                                UiAccountData::Json(data) => data,
+                                _ => continue,
+                            };
 
-                            let (amount, mint) = match account {
-                                Ok(acc) => (acc.amount as u128, acc.mint),
-                                Err(_) => continue,
+                            let Some((mint, amount)) = data.parsed.get("info").and_then(|info| {
+                                let mint = Pubkey::from_str(info.get("mint")?.as_str()?).ok()?;
+                                let amount: u128 = info
+                                    .get("tokenAmount")?
+                                    .get("amount")?
+                                    .as_str()?
+                                    .parse()
+                                    .ok()?;
+                                Some((mint, amount))
+                            }) else {
+                                continue;
                             };
 
                             if amount > 0 {
                                 if let Some(asset) = mint_to_asset.get(&mint) {
                                     self.balances.lock().await.insert(asset.clone(), amount);
-                                    debug!(
-                                        self.logger,
-                                        "Found svm token balance";
-                                        "chain_id" => %chain.chain_id,
-                                        "ata" => %pubkey,
-                                        "asset" => &asset.symbol,
-                                        "amount" => amount,
-                                    );
                                 }
                             }
                         }
@@ -235,9 +220,7 @@ impl InventoryManager {
                 .collect();
 
             for (asset, amount) in assets.iter().zip(join_all(balance_futures).await.iter()) {
-                if *amount > 0 {
-                    self.balances.lock().await.insert(asset.clone(), *amount);
-                }
+                self.balances.lock().await.insert(asset.clone(), *amount);
             }
 
             // Also get native ETH balance
@@ -287,8 +270,14 @@ impl InventoryManager {
             self.logger,
             "Current signer balances";
             "balances" => ?balance_info,
-            "address" => %self.provider_manager.evm_address
+            "address" => %self.provider_manager.evm_address,
+            "pubkey" => %self.provider_manager.svm_address
         );
+    }
+
+    async fn create_inventory_update_event(&self) -> SolverEvent {
+        let balances = self.balances.lock().await.clone();
+        SolverEvent::InventoryUpdate(InventoryUpdateEvent::new(balances))
     }
 }
 
@@ -314,6 +303,10 @@ impl EventHandler for InventoryManager {
         let _ = self.order_store.handle_event(event.clone()).await;
 
         match event {
+            SolverEvent::Start => {
+                // Publish initial balances after initialization
+                return Ok(vec![self.create_inventory_update_event().await]);
+            }
             SolverEvent::RequestHold(e) => {
                 let mut holds = self.holds.lock().await;
                 let mut order_holds = self.order_holds.lock().await;
@@ -395,7 +388,7 @@ impl EventHandler for InventoryManager {
                     return Ok(events);
                 }
             }
-            SolverEvent::OrderCompleted(_) | SolverEvent::OrderCancelRequest(_) => {
+            SolverEvent::OrderCompleted(_) | SolverEvent::OrderCancelled(_) => {
                 let order_id = event.order_id().unwrap();
 
                 // Amount of funds held for the order
@@ -433,6 +426,9 @@ impl EventHandler for InventoryManager {
                         "error" => %e,
                     );
                 }
+
+                // Publish updated balances after reload
+                return Ok(vec![self.create_inventory_update_event().await]);
             }
             _ => {}
         }

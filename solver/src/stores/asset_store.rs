@@ -10,7 +10,7 @@ use tokio::sync::RwLock;
 
 use crate::error::{Result, SolverError};
 use crate::events::{EventProcessor, SolverEvent};
-use crate::utils::{self, decode_evm_address};
+use crate::utils::{self, chain_id, chain_runtime, decode_evm_address};
 
 pub struct AssetStore {
     assets: Arc<RwLock<HashMap<AssetKey, Asset>>>,
@@ -47,7 +47,7 @@ impl AssetStore {
 
     pub fn get_native(chain: Chain) -> Asset {
         match chain {
-            Chain::Solana => Asset {
+            Chain::Solana | Chain::SolanaDevnet => Asset {
                 chain,
                 address: String::default(),
                 decimals: 9,
@@ -71,7 +71,7 @@ impl AssetStore {
     }
 
     fn parse_address(chain: Chain, address: String) -> [u8; 32] {
-        if chain == Chain::Solana {
+        if chain_runtime(chain_id(chain)) == ChainRuntime::Svm {
             let bytes = bs58::decode(address)
                 .into_vec()
                 .expect("Invalid base58 in Solana asset address");

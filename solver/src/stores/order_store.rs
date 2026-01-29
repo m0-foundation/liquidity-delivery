@@ -14,6 +14,8 @@ pub struct Order {
     pub state: OrderState,
     pub data: OrderData,
     pub filled_amount: u128,
+    pub transaction_history: Vec<TransactionRecord>,
+    pub created_at: u64,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -39,6 +41,12 @@ impl fmt::Display for OrderState {
     }
 }
 
+#[derive(Debug, Clone, serde::Serialize)]
+pub struct TransactionRecord {
+    pub transaction_hash: String,
+    pub event: String,
+}
+
 /// Event store for tracking order status
 pub struct OrderStore {
     orders: Arc<RwLock<HashMap<String, Order>>>,
@@ -58,6 +66,11 @@ impl OrderStore {
             .cloned()
             .ok_or_else(|| SolverError::OrderNotFound(order_id.to_string()))
     }
+
+    pub async fn get_all_orders(&self) -> Vec<Order> {
+        let orders = self.orders.read().await;
+        orders.values().cloned().collect()
+    }
 }
 
 #[async_trait]
@@ -76,6 +89,11 @@ impl EventProcessor for OrderStore {
                     state: OrderState::Created,
                     data: e.order.clone(),
                     filled_amount: 0,
+                    created_at: e.created_timestamp,
+                    transaction_history: vec![TransactionRecord {
+                        transaction_hash: e.transaction_hash.clone(),
+                        event: "OrderCreated".to_string(),
+                    }],
                 };
                 orders.insert(order.id.clone(), order);
             }
@@ -90,6 +108,11 @@ impl EventProcessor for OrderStore {
                 if order.filled_amount >= order.data.amount_out {
                     order.state = OrderState::Filled;
                 }
+
+                order.transaction_history.push(TransactionRecord {
+                    transaction_hash: e.transaction_hash.clone(),
+                    event: "OrderFill".to_string(),
+                });
             }
             SolverEvent::OrderRejected(e) => {
                 let order = orders
@@ -98,21 +121,33 @@ impl EventProcessor for OrderStore {
 
                 order.state = OrderState::Rejected;
             }
-            SolverEvent::OrderCancelRequest(e) => {
+            SolverEvent::OrderCancelled(e) => {
                 let order = orders
                     .get_mut(&e.order_id)
                     .ok_or_else(|| SolverError::OrderNotFound(e.order_id.clone()))?;
 
                 order.state = OrderState::Cancelled;
+                order.transaction_history.push(TransactionRecord {
+                    transaction_hash: e.transaction_hash.clone(),
+                    event: "OrderCancelRequest".to_string(),
+                });
             }
             SolverEvent::OrderRefundClaimed(e) => {
                 if let Some(order) = orders.get_mut(&e.order_id) {
                     order.state = OrderState::Rejected;
+                    order.transaction_history.push(TransactionRecord {
+                        transaction_hash: e.transaction_hash.clone(),
+                        event: "OrderRefundClaimed".to_string(),
+                    });
                 }
             }
             SolverEvent::OrderCompleted(e) => {
                 if let Some(order) = orders.get_mut(&e.order_id) {
                     order.state = OrderState::Completed;
+                    order.transaction_history.push(TransactionRecord {
+                        transaction_hash: e.transaction_hash.clone(),
+                        event: "OrderCompleted".to_string(),
+                    });
                 }
             }
             _ => {}

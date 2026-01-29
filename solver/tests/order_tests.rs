@@ -21,7 +21,7 @@ async fn test_order_rejected(ctx: &EvmChainTestSuite) {
     .await;
 
     ctx.contains_log("OrderRejected").await;
-    ctx.contains_log("Asset not supported").await;
+    ctx.contains_log("not supported").await;
 }
 
 #[test_context(EvmChainTestSuite)]
@@ -39,15 +39,12 @@ async fn test_order_processed_chain_a(ctx: &EvmChainTestSuite) {
     )
     .await;
 
-    ctx.contains_order_lifecycle(
-        "77bf9f8455c1d9dcd84b9f15a8f3ddd6cd3788a7df3aea845525be85a87dcc62",
-        &[
-            "OrderCreated",
-            "HoldSuccessful",
-            "RequestFillOrder",
-            "FillOrderSuccessful",
-        ],
-    )
+    ctx.wait_for_order_lifecycle(&[
+        "OrderCreated",
+        "HoldSuccessful",
+        "RequestFillOrder",
+        "FillOrderSuccessful",
+    ])
     .await;
 }
 
@@ -58,23 +55,20 @@ async fn test_order_processed_chain_b(ctx: &EvmChainTestSuite) {
 
     ctx.create_order(
         chain_a,
-        chain_a.tokens[0].address.clone(),
-        chain_b.tokens[1].address.clone(),
+        chain_a.tokens[1].address.clone(),
+        chain_b.tokens[0].address.clone(),
         chain_b.chain_id,
         500000,
         500000,
     )
     .await;
 
-    ctx.contains_order_lifecycle(
-        "191fe545a21e074a407c6a8c5b34bfbc3925ccd67926384756c60fce8cbad58b",
-        &[
-            "OrderCreated",
-            "HoldSuccessful",
-            "RequestFillOrder",
-            "FillOrderSuccessful",
-        ],
-    )
+    ctx.wait_for_order_lifecycle(&[
+        "OrderCreated",
+        "HoldSuccessful",
+        "RequestFillOrder",
+        "FillOrderSuccessful",
+    ])
     .await;
 }
 
@@ -93,11 +87,8 @@ async fn test_order_invalid_out(ctx: &EvmChainTestSuite) {
     )
     .await;
 
-    ctx.contains_order_lifecycle(
-        "ce8959a0ac771c894491f414ae46149f9a6960e7aa43ac74740ef2a3fc4827ed",
-        &["OrderCreated", "OrderRejected"],
-    )
-    .await;
+    ctx.wait_for_order_lifecycle(&["OrderCreated", "OrderRejected"])
+        .await;
 
     ctx.contains_log("amount_out 5000000 does not cover fee-inclusive amount_out 500000")
         .await;
@@ -118,16 +109,13 @@ async fn test_order_insufficient_solver_funds(ctx: &EvmChainTestSuite) {
     )
     .await;
 
-    ctx.contains_order_lifecycle(
-        "c2880ef255c9dc5f304bb77d13d8b61d73be02b7fb4a428396ecb4182dedea06",
-        &[
-            "OrderCreated",
-            "HoldSuccessful",
-            "RequestSwap",
-            "RequestFillOrder",
-            "FillOrderSuccessful",
-        ],
-    )
+    ctx.wait_for_order_lifecycle(&[
+        "OrderCreated",
+        "HoldSuccessful",
+        "RequestSwap",
+        "RequestFillOrder",
+        "FillOrderSuccessful",
+    ])
     .await;
 }
 
@@ -148,17 +136,14 @@ async fn test_order_multiple_clips(ctx: &EvmChainTestSuite) {
     .await;
 
     // Fill order in two clips
-    ctx.contains_order_lifecycle(
-        "c9f50de3522efc0bca73b996ab5916ad68ec65d9be0229d76c00ae31ef48f466",
-        &[
-            "OrderCreated",
-            "HoldSuccessful",
-            "RequestFillOrder",
-            "FillOrderSuccessful",
-            "HoldSuccessful",
-            "RequestFillOrder",
-            "FillOrderSuccessful",
-        ],
-    )
+    ctx.wait_for_order_lifecycle(&[
+        "OrderCreated",
+        "HoldSuccessful",
+        "RequestFillOrder",
+        "FillOrderSuccessful",
+        "HoldSuccessful",
+        "RequestFillOrder",
+        "FillOrderSuccessful",
+    ])
     .await;
 }

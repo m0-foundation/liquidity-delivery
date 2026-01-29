@@ -79,6 +79,7 @@ pub struct Config {
     pub supported_assets: SupportedAssets,
     pub quoter_grpc_url: String,
     pub connect_to_quote_stream: bool,
+    pub http_port: Option<u16>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -97,6 +98,7 @@ struct ConfigFile {
     supported_assets: Option<SupportedAssets>,
     quoter_grpc_url: String,
     connect_to_quote_stream: bool,
+    http_port: Option<u16>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -106,6 +108,8 @@ struct ChainConfigFile {
     rpc_url: String,
     ws_url: String,
     order_book_address: String,
+    portal_program_id: Option<String>,
+    bridge_adapter: Option<String>,
 }
 
 #[derive(Clone, Debug, Deserialize)]
@@ -162,6 +166,7 @@ impl Default for Config {
             auto_rebalance: true,
             quoter_grpc_url: String::from("http://127.0.0.1:50051"),
             connect_to_quote_stream: true,
+            http_port: None,
         }
     }
 }
@@ -198,10 +203,12 @@ impl Config {
                 rpc_url: c.rpc_url,
                 ws_url: c.ws_url,
                 order_book_address: c.order_book_address,
+                portal_program_id: c.portal_program_id,
+                bridge_adapter: c.bridge_adapter,
             })
             .collect();
 
-        if chains.is_empty() {
+        if chains.is_empty() && environment != Environment::Local {
             return Err(ConfigError::InvalidConfig(
                 "No enabled chains configured".to_string(),
             ));
@@ -245,6 +252,9 @@ impl Config {
         if let Some(supported_assets) = config_file.supported_assets {
             config.supported_assets = supported_assets;
         }
+        if let Some(http_port) = config_file.http_port {
+            config.http_port = Some(http_port);
+        }
 
         Ok(config)
     }
@@ -257,6 +267,8 @@ pub struct ChainConfig {
     pub rpc_url: String,
     pub ws_url: String,
     pub order_book_address: String,
+    pub portal_program_id: Option<String>,
+    pub bridge_adapter: Option<String>,
 }
 
 #[derive(Error, Debug)]

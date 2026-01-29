@@ -9,7 +9,7 @@ use crate::components::ComponentParams;
 use crate::error::Result;
 use crate::events::{EventHandler, SolverEvent};
 
-const ORDER_WARNING_THRESHOLD_SECONDS: u64 = 300;
+const ORDER_WARNING_THRESHOLD_SECONDS: u64 = 7200;
 
 pub struct OrderTimer {
     active_orders: Arc<RwLock<HashMap<String, u64>>>,

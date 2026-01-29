@@ -1,0 +1,36 @@
+{
+  "name": "liquidity-delivery-frontend",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "build": "vue-tsc -b && vite build",
+    "preview": "vite preview",
+    "lint": "eslint . --ext .vue,.js,.jsx,.cjs,.mjs,.ts,.tsx,.cts,.mts --fix --ignore-path .gitignore",
+    "type-check": "vue-tsc --build --force"
+  },
+  "dependencies": {
+    "@solana/spl-token": "^0.1.8",
+    "@solana/web3.js": "^1.95.0",
+    "@solflare-wallet/sdk": "^1.4.2",
+    "@tanstack/vue-query": "^5.92.5",
+    "buffer": "^6.0.3",
+    "ethers": "^6.13.0",
+    "viem": "^2.44.1",
+    "vue": "^3.5.0",
+    "vue-router": "^4.4.0",
+    "wagmi": "^3.3.2"
+  },
+  "devDependencies": {
+    "@types/node": "^22.0.0",
+    "@vitejs/plugin-vue": "^5.1.0",
+    "@vue/tsconfig": "^0.5.1",
+    "autoprefixer": "^10.4.20",
+    "postcss": "^8.4.47",
+    "tailwindcss": "^3.4.13",
+    "typescript": "^5.9.3",
+    "vite": "^6.0.0",
+    "vue-tsc": "^2.1.0"
+  }
+}

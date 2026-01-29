@@ -36,6 +36,9 @@ impl EventHandler for EventLogger {
                     "from_asset" => hex::encode(e.order.token_in),
                     "to_asset" => hex::encode(e.order.token_out),
                     "amount" => %e.order.amount_out,
+                    "from_chain" => %e.order.origin_chain_id,
+                    "to_chain" => %e.order.dest_chain_id,
+                    "transaction_hash" => %e.transaction_hash,
                 );
             }
             SolverEvent::OrderFill(e) => {
@@ -44,6 +47,7 @@ impl EventHandler for EventLogger {
                     "OrderFill";
                     "order_id" => %e.order_id,
                     "amount" => %e.amount,
+                    "transaction_hash" => %e.transaction_hash,
                 );
             }
             SolverEvent::OrderRejected(e) => {
@@ -54,12 +58,12 @@ impl EventHandler for EventLogger {
                     "reason" => %e.reason,
                 );
             }
-            SolverEvent::OrderCancelRequest(e) => {
+            SolverEvent::OrderCancelled(e) => {
                 info!(
                     self.logger,
-                    "OrderCancelRequest";
+                    "OrderCancelled";
                     "order_id" => %e.order_id,
-                    "requested_at" => e.requested_at,
+                    "transaction_hash" => %e.transaction_hash,
                 );
             }
             SolverEvent::OrderRefundClaimed(e) => {
@@ -69,6 +73,7 @@ impl EventHandler for EventLogger {
                     "order_id" => %e.order_id,
                     "sender" => %e.sender,
                     "amount_refunded" => %e.amount_refunded,
+                    "transaction_hash" => %e.transaction_hash,
                 );
             }
             SolverEvent::OrderCompleted(e) => {
@@ -76,6 +81,7 @@ impl EventHandler for EventLogger {
                     self.logger,
                     "OrderCompleted";
                     "order_id" => %e.order_id,
+                    "transaction_hash" => %e.transaction_hash,
                 );
             }
             SolverEvent::RequestHold(e) => {
@@ -83,7 +89,7 @@ impl EventHandler for EventLogger {
                     self.logger,
                     "RequestHold";
                     "order_id" => %e.order_id,
-                    "asset" => ?e.asset,
+                    "asset" => ?e.asset.symbol,
                     "amount" => %e.amount,
                 );
             }

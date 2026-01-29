@@ -1,5 +1,6 @@
 use m0_liquidity_sdk::types::Asset;
 use order_book::OrderData;
+use std::collections::HashMap;
 use std::time::{SystemTime, UNIX_EPOCH};
 
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
@@ -56,13 +57,14 @@ pub enum SolverEvent {
     OrderCreated(OrderCreatedEvent),
     OrderFill(OrderFillEvent),
     OrderRejected(OrderRejectEvent),
-    OrderCancelRequest(OrderCancelRequestEvent),
+    OrderCancelled(OrderCancelledEvent),
     OrderRefundClaimed(OrderRefundClaimedEvent),
     OrderCompleted(OrderCompletedEvent),
 
     // Inventory events
     RequestHold(RequestHoldEvent),
     HoldSuccessful(HoldSuccessfulEvent),
+    InventoryUpdate(InventoryUpdateEvent),
 
     // Chain events
     RequestFillOrder(RequestFillOrderEvent),
@@ -82,7 +84,7 @@ impl SolverEvent {
             SolverEvent::OrderCreated(e) => Some(e.order_id.clone()),
             SolverEvent::OrderFill(e) => Some(e.order_id.clone()),
             SolverEvent::OrderRejected(e) => Some(e.order_id.clone()),
-            SolverEvent::OrderCancelRequest(e) => Some(e.order_id.clone()),
+            SolverEvent::OrderCancelled(e) => Some(e.order_id.clone()),
             SolverEvent::OrderRefundClaimed(e) => Some(e.order_id.clone()),
             SolverEvent::OrderCompleted(e) => Some(e.order_id.clone()),
             SolverEvent::RequestHold(e) => Some(e.order_id.clone()),
@@ -99,11 +101,13 @@ impl SolverEvent {
 pub struct OrderCreatedEvent {
     pub order_id: String,
     pub timestamp: u64,
+    pub created_timestamp: u64,
     pub order: OrderData,
+    pub transaction_hash: String,
 }
 
 impl OrderCreatedEvent {
-    pub fn new(order: OrderData) -> Self {
+    pub fn new(order: OrderData, transaction_hash: String, created_timestamp: u64) -> Self {
         Self {
             order_id: hex::encode(order.compute_order_id()),
             timestamp: SystemTime::now()
@@ -111,6 +115,8 @@ impl OrderCreatedEvent {
                 .unwrap()
                 .as_secs(),
             order,
+            transaction_hash,
+            created_timestamp,
         }
     }
 }
@@ -120,11 +126,16 @@ impl OrderCreatedEvent {
 pub struct OrderFillEvent {
     pub order_id: String,
     pub amount: u128,
+    pub transaction_hash: String,
 }
 
 impl OrderFillEvent {
-    pub fn new(order_id: String, amount: u128) -> Self {
-        Self { order_id, amount }
+    pub fn new(order_id: String, amount: u128, transaction_hash: String) -> Self {
+        Self {
+            order_id,
+            amount,
+            transaction_hash,
+        }
     }
 }
 
@@ -143,16 +154,16 @@ impl OrderRejectEvent {
 
 /// Event: Order cancel requested
 #[derive(Debug, Clone)]
-pub struct OrderCancelRequestEvent {
+pub struct OrderCancelledEvent {
     pub order_id: String,
-    pub requested_at: u64,
+    pub transaction_hash: String,
 }
 
-impl OrderCancelRequestEvent {
-    pub fn new(order_id: String, requested_at: u64) -> Self {
+impl OrderCancelledEvent {
+    pub fn new(order_id: String, transaction_hash: String) -> Self {
         Self {
             order_id,
-            requested_at,
+            transaction_hash,
         }
     }
 }
@@ -163,14 +174,21 @@ pub struct OrderRefundClaimedEvent {
     pub order_id: String,
     pub sender: String,
     pub amount_refunded: u128,
+    pub transaction_hash: String,
 }
 
 impl OrderRefundClaimedEvent {
-    pub fn new(order_id: String, sender: String, amount_refunded: u128) -> Self {
+    pub fn new(
+        order_id: String,
+        sender: String,
+        amount_refunded: u128,
+        transaction_hash: String,
+    ) -> Self {
         Self {
             order_id,
             sender,
             amount_refunded,
+            transaction_hash,
         }
     }
 }
@@ -180,16 +198,18 @@ impl OrderRefundClaimedEvent {
 pub struct OrderCompletedEvent {
     pub order_id: String,
     pub timestamp: u64,
+    pub transaction_hash: String,
 }
 
 impl OrderCompletedEvent {
-    pub fn new(order_id: String) -> Self {
+    pub fn new(order_id: String, transaction_hash: String) -> Self {
         Self {
             order_id,
             timestamp: SystemTime::now()
                 .duration_since(UNIX_EPOCH)
                 .unwrap()
                 .as_secs(),
+            transaction_hash,
         }
     }
 }
@@ -226,6 +246,25 @@ impl HoldSuccessfulEvent {
         Self {
             order_id,
             hold_amount,
+        }
+    }
+}
+
+/// Event: Inventory balances updated
+#[derive(Debug, Clone)]
+pub struct InventoryUpdateEvent {
+    pub balances: HashMap<Asset, u128>,
+    pub timestamp: u64,
+}
+
+impl InventoryUpdateEvent {
+    pub fn new(balances: HashMap<Asset, u128>) -> Self {
+        Self {
+            balances,
+            timestamp: SystemTime::now()
+                .duration_since(UNIX_EPOCH)
+                .unwrap()
+                .as_secs(),
         }
     }
 }

@@ -1,11 +1,7 @@
 use anchor_client::{
     anchor_lang::system_program,
     solana_sdk::{
-        program_pack::Pack,
-        pubkey::Pubkey,
-        signature::{Keypair, Signature},
-        signer::Signer,
-        system_instruction,
+        program_pack::Pack, pubkey::Pubkey, signature::Keypair, signer::Signer, system_instruction,
         transaction::Transaction,
     },
     Program,
@@ -21,7 +17,7 @@ pub async fn create_open_order(
     program: Program<Arc<Keypair>>,
     token_in_mint: &Pubkey,
     order_params: &order_book::instructions::open::OrderParams,
-) -> Signature {
+) -> String {
     let global_account = orderbook_pda(&[b"global"]);
     let event_authority = orderbook_pda(&[b"__event_authority"]);
     let sender_nonce_account = orderbook_pda(&[
@@ -41,6 +37,7 @@ pub async fn create_open_order(
         nonce: sender_nonce,
         origin_chain_id: 1399811149,
         dest_chain_id: order_params.dest_chain_id,
+        created_at: order_params.created_at,
         fill_deadline: order_params.fill_deadline,
         token_in: token_in_mint.to_bytes(),
         token_out: order_params.token_out,
@@ -77,7 +74,9 @@ pub async fn create_open_order(
         })
         .send()
         .await
-        .expect("failed to build order transaction")
+        .expect("failed to build order transaction");
+
+    hex::encode(order_id)
 }
 
 pub fn orderbook_pda(seeds: &[&[u8]]) -> Pubkey {

@@ -123,6 +123,7 @@ impl EventHandler for EvmWriter {
                     nonce: order.data.nonce,
                     originChainId: order.data.origin_chain_id,
                     destChainId: order.data.dest_chain_id,
+                    createdAt: order.data.created_at,
                     fillDeadline: order.data.fill_deadline,
                     tokenIn: order.data.token_in.into(),
                     tokenOut: order.data.token_out.into(),
@@ -135,6 +136,7 @@ impl EventHandler for EvmWriter {
                 let fill_params = IOrderBook::FillParams {
                     amountOutToFill: e.amount,
                     originRecipient: decode_evm_address(solver_address).into(),
+                    refundAddress: decode_evm_address(solver_address).into(),
                 };
 
                 let provider = provider_wrapper.provider().await;

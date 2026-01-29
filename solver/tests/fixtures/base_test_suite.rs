@@ -3,11 +3,12 @@
 use alloy::{
     network::TransactionBuilder,
     node_bindings::AnvilInstance,
-    primitives::{Address, FixedBytes, U256},
+    primitives::{Address, Bytes, FixedBytes, U256},
     providers::{Provider, ProviderBuilder},
     rpc::types::TransactionRequest,
     signers::{k256::sha2::digest::Key, local::PrivateKeySigner},
     sol,
+    sol_types::SolCall,
 };
 use anchor_client::{
     solana_sdk::{
@@ -52,9 +53,25 @@ sol!(
 
 sol!(
     #[sol(rpc)]
+    ERC1967Proxy,
+    "tests/artifacts/ERC1967Proxy.json"
+);
+
+sol!(
+    #[sol(rpc)]
     exampleERC20,
     "tests/artifacts/exampleERC20.json"
 );
+
+mod mock_portal {
+    use alloy::sol;
+    sol!(
+        #[sol(rpc)]
+        MockPortalV2,
+        "tests/artifacts/MockPortalV2.json"
+    );
+}
+use mock_portal::MockPortalV2;
 
 pub use IOrderBook::OrderParams;
 
@@ -86,6 +103,60 @@ pub struct ChainInstance {
 }
 
 impl BaseTestSuite {
+    /// Create a test suite with a mock quoter gRPC server (for API tests)
+    pub async fn setup_with_mock_quoter(quoter_grpc_url: String) -> BaseTestSuite {
+        // Create a log buffer for capturing logs
+        let log_buffer = LogBuffer::new();
+        let logger = Logger::root(
+            slog_async::Async::new(log_buffer.clone().fuse())
+                .build()
+                .fuse(),
+            slog::o!("component" => "TestSuite"),
+        );
+
+        let evm_signer = PrivateKeySigner::from_bytes(&FixedBytes::from([1u8; 32])).unwrap();
+        let evm_user = PrivateKeySigner::from_bytes(&FixedBytes::from([2u8; 32])).unwrap();
+        let svm_signer = Arc::new(Keypair::from_base58_string("2MqZwxzsfaEvQvnj4CgvUo2aknYXxJW2bBn5ewbftnbjU9DAtWX1XzCHy7Wd8dBSq5bmRwj6Ya5XTAnEe8sy2qS9"));
+        let svm_user = Arc::new(Keypair::from_base58_string("24VxBmMCYGp7SZquR2PdN3CJMErv1jVVbp5KFdHuVzv3sZ3537uiPDfyDATS5H7AMHS7b7nq1LFqxQMUKHSAQgDQ"));
+
+        // Create mock API with default test tokens
+        let mock_server = mock_api::mock_api_with_assets(vec![]).await;
+
+        // Setup solver config
+        let mut config = Config::default();
+        config.environment = Environment::Local;
+        config.liquidity_api_url = mock_server.url();
+        config.signers = Signers::new(evm_signer.clone(), svm_signer.clone());
+        config.max_order_clip_size = 100;
+        config.max_clip_reprocess_delay_sec = 1;
+        config.connect_to_quote_stream = true;
+        config.quoter_grpc_url = quoter_grpc_url;
+
+        let shutdown_tx = solver::run_solver(config, logger.clone())
+            .await
+            .expect("Failed to start solver");
+
+        let suite = BaseTestSuite {
+            chains: vec![],
+            _evm_signer: evm_signer,
+            evm_user,
+            _svm_signer: svm_signer,
+            svm_user,
+            svm_mint: None,
+            surfpool_process: None,
+            quoter_process: None,
+            shutdown_tx,
+            _mock_server: mock_server,
+            log_buffer,
+            logger,
+        };
+
+        // Wait for solver to start
+        suite.contains_log("All components registered").await;
+
+        suite
+    }
+
     /// Create a new test suite with Anvil and deployed contracts
     pub async fn setup_with_chains(evm_chains: Vec<u32>, start_quoter_api: bool) -> BaseTestSuite {
         // Create a log buffer for capturing logs
@@ -206,32 +277,55 @@ impl BaseTestSuite {
                 .wallet(evm_signer.clone())
                 .connect_http(anvil.endpoint_url());
 
-            let contract = IOrderBook::deploy(provider.clone(), chain_id, Address::new([0u8; 20]))
+            // Deploy MockPortalV2 first
+            let messenger = MockPortalV2::deploy(&provider)
                 .await
-                .expect("Failed to deploy contract");
+                .expect("Failed to deploy MockPortalV2");
 
-            let &contract_address = contract.address();
+            // Deploy implementation contract
+            let implementation = IOrderBook::deploy(provider.clone(), *messenger.address())
+                .await
+                .expect("Failed to deploy implementation");
 
-            // Initialize the contract with admin role
-            contract
-                .initialize(evm_signer.address())
+            // Encode initialization data
+            let init_data = IOrderBook::initializeCall {
+                admin: evm_signer.address(),
+                pauser: evm_signer.address(),
+            }
+            .abi_encode();
+
+            // Deploy proxy pointing to implementation with init data
+            let proxy = ERC1967Proxy::deploy(
+                provider.clone(),
+                *implementation.address(),
+                init_data.into(),
+            )
+            .await
+            .expect("Failed to deploy proxy");
+
+            let contract_address = *proxy.address();
+            let contract = IOrderBook::new(contract_address, provider.clone());
+
+            // Configure MockPortalV2 with OrderBook address
+            messenger
+                .setOrderBook(contract_address)
                 .send()
                 .await
-                .expect("Failed to send initialize transaction")
+                .expect("Failed to send setOrderBook transaction")
                 .get_receipt()
                 .await
-                .expect("Failed to confirm initialize transaction");
+                .expect("Failed to confirm setOrderBook transaction");
 
-            // Set destination config
+            // Set destination support
             let &dest_chain = evm_chains.get((i + 1) % evm_chains.len()).unwrap_or(&8453);
             contract
-                .setDestinationConfig(dest_chain, true, 10)
+                .setDestinationSupported(dest_chain, true)
                 .send()
                 .await
-                .expect("Failed to send setDestinationConfig transaction for chain 1")
+                .expect("Failed to send setDestinationSupported transaction for chain 1")
                 .get_receipt()
                 .await
-                .expect("Failed to confirm setDestinationConfig transaction for chain 1");
+                .expect("Failed to confirm setDestinationSupported transaction for chain 1");
 
             // Deploy mock tokens for testing
             let mut tokens = Vec::new();
@@ -321,6 +415,8 @@ impl BaseTestSuite {
                 rpc_url: chain.anvil.endpoint_url().to_string(),
                 ws_url: chain.anvil.ws_endpoint_url().to_string(),
                 order_book_address: chain.contract_address.to_string(),
+                portal_program_id: None,
+                bridge_adapter: None,
             });
         }
 
@@ -331,6 +427,8 @@ impl BaseTestSuite {
                 rpc_url: format!("http://localhost:{}", surfpool_process.port),
                 ws_url: format!("ws://localhost:{}", surfpool_process.port + 1),
                 order_book_address: "MzLoYnJ6sF6eeejs4vV95TNmXqS3W4cAtLGKkjT4ZrK".to_string(),
+                portal_program_id: Some("MzBrgc8yXBj4P16GTkcSyDZkEQZB9qDqf3fh9bByJce".to_string()),
+                bridge_adapter: None,
             });
         }
 
@@ -480,6 +578,36 @@ impl BaseTestSuite {
         }
     }
 
+    /// Extract the order ID from the first OrderCreated event in the logs
+    pub async fn get_order_id_from_logs(&self) -> String {
+        let timeout = Duration::from_secs(10);
+        let poll_interval = Duration::from_millis(50);
+        let start = std::time::Instant::now();
+
+        // Pattern to match order_id in OrderCreated event
+        let re = Regex::new(r"OrderCreated.*order_id=([a-f0-9]{64})").unwrap();
+
+        while start.elapsed() < timeout {
+            let logs = self.log_buffer.to_string();
+            if let Some(caps) = re.captures(&logs) {
+                return caps.get(1).unwrap().as_str().to_string();
+            }
+            sleep(poll_interval).await;
+        }
+
+        panic!("Could not find OrderCreated event with order_id in logs");
+    }
+
+    /// Wait for and verify order lifecycle events (dynamically extracts order_id)
+    pub async fn wait_for_order_lifecycle(&self, events: &[&str]) {
+        let order_id = self.get_order_id_from_logs().await;
+        let mut start_index: usize = 0;
+        for &event in events {
+            let pattern = format!("{} .* order_id={}", event, order_id);
+            start_index = self.contains_log_from_index(&pattern, start_index).await;
+        }
+    }
+
     pub async fn create_order(
         &self,
         chain: &ChainInstance,
@@ -522,7 +650,7 @@ impl BaseTestSuite {
         dest_chain_id: u32,
         amount_in: u64,
         amount_out: u64,
-    ) -> Signature {
+    ) -> String {
         let client = Client::new(
             Cluster::from_str(&self.surfpool_endpoint()).unwrap(),
             self.svm_user.clone(),
@@ -536,6 +664,10 @@ impl BaseTestSuite {
             &order_book::instructions::open::OrderParams {
                 token_out: decode_address(token_out, dest_chain_id).unwrap(),
                 dest_chain_id,
+                created_at: std::time::SystemTime::now()
+                    .duration_since(std::time::UNIX_EPOCH)
+                    .unwrap()
+                    .as_secs(),
                 amount_in,
                 amount_out: amount_out as u128,
                 recipient: decode_evm_address(self.evm_user.address()),

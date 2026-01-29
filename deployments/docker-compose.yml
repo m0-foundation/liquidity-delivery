@@ -1,0 +1,193 @@
+services:
+  # Surfpool - Local Solana validator with program deployment
+  surfpool:
+    image: surfpool/surfpool:latest
+    container_name: surfpool
+    command: >
+      start
+      --host 0.0.0.0
+      --no-tui
+      --manifest-file-path /app/txtx.yml
+      --rpc-url https://hatty-73mn84-fast-mainnet.helius-rpc.com
+      -l debug
+      -r local-setup
+      -a test4MzZzYk2NAP1222FSuKqq83GuXY5tHakqREDHPo
+      -a 24PNhTaNtomHhoy3fTRaMhAFCRj4uHqhZEEoWrKDbR5p
+    working_dir: /app
+    volumes:
+      - ./config/solana-keypair.json:/root/.config/solana/id.json:ro
+      - ../txtx.yml:/app/txtx.yml:ro
+      - ../Anchor.toml:/app/Anchor.toml:ro
+      - ../target:/app/target:ro
+      - ../svm/programs:/app/svm/programs:ro
+      - ../svm/runbooks:/app/svm/runbooks:ro
+    ports:
+      - "8899:8899"
+      - "8900:8900"
+      - "18488:18488"
+    healthcheck:
+      test: ["CMD-SHELL", "bash -c 'echo > /dev/tcp/localhost/8899'"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+      start_period: 30s
+    networks:
+      - liquidity-network
+
+  # Solana token funder - funds accounts with USDC via Surfpool cheatcodes
+  solana-funder:
+    image: curlimages/curl:latest
+    container_name: solana-funder
+    depends_on:
+      surfpool:
+        condition: service_healthy
+    entrypoint: ["/bin/sh", "/scripts/fund-solana.sh"]
+    volumes:
+      - ./scripts/fund-solana.sh:/scripts/fund-solana.sh:ro
+    environment:
+      - SURFPOOL_RPC=http://surfpool:8899
+    networks:
+      - liquidity-network
+
+  # Anvil node - Chain A (local Ethereum)
+  anvil-chain-a:
+    image: ghcr.io/foundry-rs/foundry:latest
+    container_name: anvil-chain-a
+    entrypoint: ["anvil", "--host", "0.0.0.0", "--chain-id", "1", "--block-time", "1", "-v"]
+    ports:
+      - "8545:8545"
+    healthcheck:
+      test: ["CMD", "cast", "block-number", "--rpc-url", "http://localhost:8545"]
+      interval: 2s
+      timeout: 5s
+      retries: 10
+      start_period: 2s
+    networks:
+      - liquidity-network
+
+  # Anvil node - Chain B (local Base)
+  anvil-chain-b:
+    image: ghcr.io/foundry-rs/foundry:latest
+    container_name: anvil-chain-b
+    entrypoint: ["anvil", "--host", "0.0.0.0", "--chain-id", "8453", "--block-time", "1", "-v"]
+    ports:
+      - "8546:8545"
+    healthcheck:
+      test: ["CMD", "cast", "block-number", "--rpc-url", "http://localhost:8545"]
+      interval: 2s
+      timeout: 5s
+      retries: 10
+      start_period: 2s
+    networks:
+      - liquidity-network
+
+  # Contract deployer - deploys OrderBook and ERC20 tokens to Anvil nodes
+  deployer:
+    build:
+      context: ..
+      dockerfile: deployments/Dockerfile.deployer
+    container_name: liquidity-deployer
+    depends_on:
+      anvil-chain-a:
+        condition: service_healthy
+      anvil-chain-b:
+        condition: service_healthy
+    environment:
+      - CHAIN_A_RPC=http://anvil-chain-a:8545
+      - CHAIN_B_RPC=http://anvil-chain-b:8545
+    networks:
+      - liquidity-network
+
+  # Mock liquidity API using WireMock
+  mock-api:
+    image: wiremock/wiremock:latest
+    container_name: liquidity-mock-api
+    volumes:
+      - ./wiremock/mappings:/home/wiremock/mappings:ro
+    ports:
+      - "8080:8080"
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8080/__admin/health"]
+      interval: 5s
+      timeout: 3s
+      retries: 3
+      start_period: 5s
+    networks:
+      - liquidity-network
+
+  # Quoter service - provides quotes via gRPC and HTTP API
+  quoter:
+    build:
+      context: ..
+      dockerfile: deployments/quoter/Dockerfile
+    container_name: liquidity-quoter
+    depends_on:
+      deployer:
+        condition: service_completed_successfully
+    environment:
+      - QUOTER_ENV=development
+      - QUOTE_TIMEOUT_MS=1000
+      - GRPC_HOST=0.0.0.0
+      - GRPC_PORT=50051
+      - API_PORT=3000
+      - QUOTER_CONFIG=/app/config.yaml
+    volumes:
+      - ./config/quoter-local.yaml:/app/config.yaml:ro
+    ports:
+      - "3002:3000"   # HTTP API (host:container)
+      - "50052:50051" # gRPC (host:container)
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:3000/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+      start_period: 30s
+    networks:
+      - liquidity-network
+
+  # Solver service - processes orders across chains
+  solver:
+    build:
+      context: ..
+      dockerfile: solver/Dockerfile
+    container_name: liquidity-solver
+    depends_on:
+      quoter:
+        condition: service_healthy
+      mock-api:
+        condition: service_healthy
+      deployer:
+        condition: service_completed_successfully
+    volumes:
+      - ./config/solver-local.yaml:/app/config.yaml:ro
+    ports:
+      - "3001:3001"
+    networks:
+      - liquidity-network
+
+  # Frontend - Vue 3 application
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+      target: development
+    container_name: liquidity-frontend
+    environment:
+      - VITE_QUOTER_URL=http://localhost:3002
+      - VITE_ANVIL_RPC=http://localhost:8545
+      - VITE_BASE_LOCAL_RPC=http://localhost:8546
+    ports:
+      - "5173:5173"
+    volumes:
+      - ./frontend/src:/app/src:ro
+      - ./frontend/public:/app/public:ro
+      - ./frontend/index.html:/app/index.html:ro
+    depends_on:
+      quoter:
+        condition: service_healthy
+    networks:
+      - liquidity-network
+
+networks:
+  liquidity-network:
+    driver: bridge
