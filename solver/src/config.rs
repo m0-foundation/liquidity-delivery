@@ -80,6 +80,7 @@ pub struct Config {
     pub quoter_grpc_url: String,
     pub connect_to_quote_stream: bool,
     pub http_port: Option<u16>,
+    pub loki_url: Option<String>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -99,6 +100,7 @@ struct ConfigFile {
     quoter_grpc_url: String,
     connect_to_quote_stream: bool,
     http_port: Option<u16>,
+    loki_url: Option<String>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -108,6 +110,7 @@ struct ChainConfigFile {
     rpc_url: String,
     ws_url: String,
     order_book_address: String,
+    portal_address: Option<String>,
     portal_program_id: Option<String>,
     bridge_adapter: Option<String>,
     lut_address: Option<String>,
@@ -168,6 +171,7 @@ impl Default for Config {
             quoter_grpc_url: String::from("http://127.0.0.1:50051"),
             connect_to_quote_stream: true,
             http_port: None,
+            loki_url: None,
         }
     }
 }
@@ -204,6 +208,7 @@ impl Config {
                 rpc_url: c.rpc_url,
                 ws_url: c.ws_url,
                 order_book_address: c.order_book_address,
+                portal_address: c.portal_address,
                 portal_program_id: c.portal_program_id,
                 bridge_adapter: c.bridge_adapter,
                 lut_address: c.lut_address,
@@ -257,6 +262,9 @@ impl Config {
         if let Some(http_port) = config_file.http_port {
             config.http_port = Some(http_port);
         }
+        if let Some(loki_url) = config_file.loki_url {
+            config.loki_url = Some(loki_url);
+        }
 
         Ok(config)
     }
@@ -269,6 +277,7 @@ pub struct ChainConfig {
     pub rpc_url: String,
     pub ws_url: String,
     pub order_book_address: String,
+    pub portal_address: Option<String>,
     pub portal_program_id: Option<String>,
     pub bridge_adapter: Option<String>,
     /// Optional Address Lookup Table for reducing SVM transaction sizes

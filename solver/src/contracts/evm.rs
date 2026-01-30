@@ -104,3 +104,19 @@ sol! {
         function decimals() external view returns (uint8);
     }
 }
+
+sol! {
+    #[sol(rpc)]
+    interface IPortal {
+        #[derive(Debug)]
+        enum PayloadType {
+            TokenTransfer,
+            Index,
+            RegistrarKey,
+            RegistrarList,
+            FillReport
+        }
+
+        function quote(uint32 destinationChainId, PayloadType payloadType) external view returns (uint256);
+    }
+}

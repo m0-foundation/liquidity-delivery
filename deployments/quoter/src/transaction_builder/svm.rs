@@ -137,7 +137,7 @@ impl SvmTransactionBuilder {
             .duration_since(UNIX_EPOCH)
             .map_err(|e| TransactionBuilderError::SerializationError(e.to_string()))?
             .as_secs()
-            + 120;
+            + 30;
 
         let order_data = OrderData {
             version: VERSION,

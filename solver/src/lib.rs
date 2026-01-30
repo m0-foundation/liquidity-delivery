@@ -3,6 +3,7 @@ pub mod config;
 mod contracts;
 mod error;
 mod events;
+pub mod loki;
 pub mod providers;
 mod stores;
 pub mod utils;

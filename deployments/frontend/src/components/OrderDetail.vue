@@ -532,6 +532,7 @@ onUnmounted(() => {
                   <div>
                     <div class="text-sm font-medium text-surface-200">{{ tx.event }}</div>
                     <div class="text-xs text-surface-500 font-mono mt-0.5">{{ truncateAddress(tx.transaction_hash, 10, 8) }}</div>
+                    <div class="text-xs mt-0.5" :style="{ color: getChainColor(tx.chain_id) }">{{ getChainName(tx.chain_id) }}</div>
                   </div>
                 </div>
                 <div class="flex items-center gap-2">

@@ -12,6 +12,9 @@ http_port: 3001
 quoter_grpc_url: http://quoter.railway.internal:50051
 connect_to_quote_stream: true
 
+liquidity_api_url: http://api-mainnet-b325.up.railway.app:5600
+loki_url: http://loki.railway.internal:3100
+
 # RPC rate limiting
 rpc_rate_limit:
   max_requests_per_second: 10
@@ -48,4 +51,5 @@ chains:
     ws_url: wss://mainnet.helius-rpc.com/?api-key=c5cd4e3c-bba3-47ce-bec8-74a82995a1c1
     order_book_address: "MzLoYnJ6sF6eeejs4vV95TNmXqS3W4cAtLGKkjT4ZrK"
     enabled: true
+    portal_address: "MzBrgc8yXBj4P16GTkcSyDZkEQZB9qDqf3fh9bByJce"
     lut_address: "52jvd5uEcgemmXzhmyaAxPSPQgHFdSQgKwVfauattsE3"

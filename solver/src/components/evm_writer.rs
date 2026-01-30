@@ -9,7 +9,7 @@ use tokio::sync::Mutex;
 
 use crate::components::ComponentParams;
 use crate::config::ChainConfig;
-use crate::contracts::{IOrderBook, IERC20};
+use crate::contracts::{IOrderBook, IPortal, IERC20};
 use crate::error::{Result, SolverError};
 use crate::events::{EventHandler, EventProcessor, FillOrderSuccessfulEvent, SolverEvent};
 use crate::providers::ProviderManager;
@@ -57,6 +57,15 @@ impl EvmWriter {
             .ok_or_else(|| {
                 SolverError::Component("Order book address not found for chain".to_string())
             })
+    }
+
+    fn get_portal_address(&self, chain_id: u32) -> Result<Address> {
+        self.chains
+            .iter()
+            .find(|c| c.chain_id == chain_id)
+            .and_then(|c| c.portal_address.as_ref())
+            .map(|addr| Address::from_str(addr).unwrap())
+            .ok_or_else(|| SolverError::Component("Portal address not found for chain".to_string()))
     }
 
     async fn approve_spending(&self, token: &[u8; 32], chain_id: u32, amount: u128) -> Result<()> {
@@ -126,6 +135,24 @@ impl EventHandler for EvmWriter {
                     return Ok(vec![]);
                 }
 
+                // Wait until order's created_at timestamp before filling
+                let now = std::time::SystemTime::now()
+                    .duration_since(std::time::UNIX_EPOCH)
+                    .unwrap()
+                    .as_secs()
+                    - 15; // Subtract 15 seconds to account for chain time drift
+                if now < order.data.created_at as u64 {
+                    let wait_secs = order.data.created_at as u64 - now;
+                    info!(
+                        self.logger,
+                        "Waiting for order created_at timestamp";
+                        "order_id" => %e.order_id,
+                        "created_at" => order.data.created_at,
+                        "wait_secs" => wait_secs,
+                    );
+                    tokio::time::sleep(std::time::Duration::from_secs(wait_secs)).await;
+                }
+
                 // Acquire per-chain transaction lock to prevent nonce conflicts
                 let tx_lock = self.get_tx_lock(dest_chain_id).ok_or_else(|| {
                     SolverError::Component(format!(
@@ -167,15 +194,27 @@ impl EventHandler for EvmWriter {
                 };
 
                 let provider = provider_wrapper.provider().await;
-                let order_book = IOrderBook::new(order_book_address, provider);
+                let order_book = IOrderBook::new(order_book_address, provider.clone());
+
+                // Get portal quote for the fill report message
+                let portal_address = self.get_portal_address(dest_chain_id)?;
+                let portal = IPortal::new(portal_address, provider);
+                let quote = portal
+                    .quote(order.data.origin_chain_id, IPortal::PayloadType::FillReport)
+                    .call()
+                    .await
+                    .map_err(|err| {
+                        SolverError::Component(format!("Failed to get portal quote: {}", err))
+                    })?;
 
                 // Ensure spending is approved
                 self.approve_spending(&order.data.token_out, dest_chain_id, e.amount)
                     .await?;
 
-                // Call fillOrder
+                // Call fillOrder with portal quote as msg.value
                 match order_book
                     .fillOrder(order_id_bytes.into(), order_data, fill_params)
+                    .value(quote)
                     .send()
                     .await
                 {
@@ -219,6 +258,7 @@ impl EventHandler for EvmWriter {
                             "Failed to submit fill order transaction";
                             "order_id" => %e.order_id,
                             "error" => %err,
+                            "quote" => %quote
                         );
                     }
                 }

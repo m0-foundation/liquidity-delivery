@@ -20,9 +20,9 @@ use crate::config::{ChainConfig, Network};
 use crate::contracts::evm::IOrderBook;
 use crate::error::{Result, SolverError};
 use crate::events::{
-    EventBus, EventHandler, EventProcessor, OrderCancelled, OrderCancelledEvent, OrderCompleted,
-    OrderCompletedEvent, OrderCreatedEvent, OrderFillEvent, OrderFilled, OrderOpened,
-    OrderRefundClaimedEvent, RefundClaimed, SolverEvent,
+    EventBus, EventHandler, EventProcessor, FillReported, OrderCancelled, OrderCancelledEvent,
+    OrderCompleted, OrderCompletedEvent, OrderCreatedEvent, OrderFillEvent, OrderFilled,
+    OrderOpened, OrderRefundClaimedEvent, RefundClaimed, SolverEvent,
 };
 use crate::stores::OrderStore;
 use crate::utils::{chain_runtime, decode_evm_address, unix_timestamp_secs};
@@ -124,6 +124,7 @@ impl EvmEventListener {
                 OrderCancelled::SIGNATURE_HASH,
                 RefundClaimed::SIGNATURE_HASH,
                 OrderCompleted::SIGNATURE_HASH,
+                FillReported::SIGNATURE_HASH,
             ]);
 
         // Subscribe to logs
@@ -277,6 +278,7 @@ impl EvmEventListener {
                 OrderCancelled::SIGNATURE_HASH,
                 RefundClaimed::SIGNATURE_HASH,
                 OrderCompleted::SIGNATURE_HASH,
+                FillReported::SIGNATURE_HASH,
             ]);
 
         let logs = provider.get_logs(&filter).await.map_err(|e| {
@@ -389,6 +391,8 @@ impl EvmEventListener {
                 &log_data,
                 transaction_hash,
             )?));
+        } else if event_signature == FillReported::SIGNATURE_HASH {
+            return Ok(Some(Self::handle_fill_reported(&log_data, transaction_hash)?));
         }
 
         Ok(None)
@@ -485,5 +489,16 @@ impl EvmEventListener {
         let completed_event = OrderCompletedEvent::new(order_id, transaction_hash);
 
         Ok(SolverEvent::OrderCompleted(completed_event))
+    }
+
+    fn handle_fill_reported(log: &Log, transaction_hash: String) -> Result<SolverEvent> {
+        let event = FillReported::decode_log(log).map_err(|e| {
+            SolverError::Component(format!("Failed to decode FillReported: {}", e))
+        })?;
+
+        let order_id = format!("{:x}", event.orderId);
+        let fill_event = OrderFillEvent::new(order_id, event.amountOutFilled, transaction_hash);
+
+        Ok(SolverEvent::OrderFill(fill_event))
     }
 }

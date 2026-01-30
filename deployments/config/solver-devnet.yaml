@@ -11,6 +11,7 @@ quoter_grpc_url: http://quoter.railway.internal:50051
 connect_to_quote_stream: true
 
 liquidity_api_url: http://api-devnet-devnet.up.railway.app
+loki_url: http://loki.railway.internal:3100
 
 # RPC rate limiting
 rpc_rate_limit:
@@ -41,6 +42,7 @@ chains:
     rpc_url: https://eth-sepolia.g.alchemy.com/v2/w-r8VabcoQMvw_Sp-krrirztyoLSc2sS
     ws_url: wss://eth-sepolia.g.alchemy.com/v2/w-r8VabcoQMvw_Sp-krrirztyoLSc2sS
     order_book_address: "0xe39B012AB3b20E94a9beEa557eB0DE4171D4D3E4"
+    portal_address: "0x50D65829Eae411B655bAA92539E4F8c46D20638C"
     enabled: true
 
   # Solana Devnet
@@ -49,6 +51,7 @@ chains:
     rpc_url: https://devnet.helius-rpc.com/?api-key=c5cd4e3c-bba3-47ce-bec8-74a82995a1c1
     ws_url: wss://devnet.helius-rpc.com/?api-key=c5cd4e3c-bba3-47ce-bec8-74a82995a1c1
     order_book_address: "MzLoYnJ6sF6eeejs4vV95TNmXqS3W4cAtLGKkjT4ZrK"
+    portal_address: "MzBrgc8yXBj4P16GTkcSyDZkEQZB9qDqf3fh9bByJce"
     enabled: true
     lut_address: "78tUqtX1GGTKcsye4dtUTKbKqBDnhC8sawfeXQDnr7H"
 
@@ -57,4 +60,5 @@ chains:
     enabled: true
     rpc_url: https://arb-sepolia.g.alchemy.com/v2/w-r8VabcoQMvw_Sp-krrirztyoLSc2sS
     ws_url: wss://arb-sepolia.g.alchemy.com/v2/w-r8VabcoQMvw_Sp-krrirztyoLSc2sS
+    portal_address: "0x50D65829Eae411B655bAA92539E4F8c46D20638C"
     order_book_address: "0xe39B012AB3b20E94a9beEa557eB0DE4171D4D3E4"

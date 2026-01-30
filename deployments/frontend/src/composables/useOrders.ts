@@ -4,6 +4,7 @@ import { computed, MaybeRef, ref, toValue, watch } from "vue";
 export interface TransactionRecord {
   transaction_hash: string;
   event: string;
+  chain_id: number;
 }
 
 export interface TrackedOrder {

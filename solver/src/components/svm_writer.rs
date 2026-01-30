@@ -1,3 +1,13 @@
+use crate::components::ComponentParams;
+use crate::config::{self, ChainConfig};
+use crate::error::{Result, SolverError};
+use crate::events::{EventHandler, EventProcessor, FillOrderSuccessfulEvent, SolverEvent};
+use crate::providers::ProviderManager;
+use crate::stores::OrderStore;
+use crate::utils::{
+    anchor_discriminator, chain_runtime, decode_address, decode_order_id, find_pda,
+    PORTAL_PROGRAM_ID, WORMHOLE_ADAPTER,
+};
 use anchor_client::anchor_lang::AnchorSerialize;
 use anchor_client::solana_sdk::address_lookup_table::state::AddressLookupTable;
 use anchor_client::solana_sdk::{
@@ -11,25 +21,18 @@ use anchor_client::solana_sdk::{
     transaction::VersionedTransaction,
 };
 use async_trait::async_trait;
+use base64::{engine::general_purpose::STANDARD, Engine};
 use m0_liquidity_sdk::types::ChainRuntime;
 use m0_portal_common::{
     build_relay_instruction, get_wormhole_chain_id, wormhole, WormholeRemainingAccounts,
 };
 use slog::{error, info, Logger};
-use spl_associated_token_account::get_associated_token_address;
+use spl_associated_token_account::{
+    get_associated_token_address_with_program_id,
+    instruction::create_associated_token_account_idempotent,
+};
 use std::str::FromStr;
 use std::sync::Arc;
-
-use crate::components::ComponentParams;
-use crate::config::{self, ChainConfig};
-use crate::error::{Result, SolverError};
-use crate::events::{EventHandler, EventProcessor, FillOrderSuccessfulEvent, SolverEvent};
-use crate::providers::ProviderManager;
-use crate::stores::OrderStore;
-use crate::utils::{
-    anchor_discriminator, chain_runtime, decode_address, decode_order_id, find_pda,
-    PORTAL_PROGRAM_ID, WORMHOLE_ADAPTER,
-};
 
 pub struct SvmWriter {
     order_store: Arc<OrderStore>,
@@ -119,6 +122,23 @@ impl SvmWriter {
         Ok(lookup_table)
     }
 
+    /// Determines the token program ID for a given mint by checking the mint account's owner
+    async fn get_token_program_for_mint(
+        &self,
+        rpc_client: &solana_client::nonblocking::rpc_client::RpcClient,
+        mint: &Pubkey,
+    ) -> Result<Pubkey> {
+        let account = rpc_client.get_account(mint).await.map_err(|e| {
+            SolverError::Component(format!("Failed to fetch mint account {}: {}", mint, e))
+        })?;
+
+        if account.owner == spl_token_2022::ID {
+            Ok(spl_token_2022::ID)
+        } else {
+            Ok(spl_token::ID)
+        }
+    }
+
     async fn build_and_send_versioned_transaction(
         &self,
         rpc_client: &solana_client::nonblocking::rpc_client::RpcClient,
@@ -168,7 +188,19 @@ impl SvmWriter {
         let signature = rpc_client
             .send_and_confirm_transaction(&tx)
             .await
-            .map_err(|e| SolverError::Component(format!("Failed to send transaction: {}", e)))?;
+            .map_err(|e| {
+                let tx_base64 = bincode::serialize(&tx)
+                    .map(|bytes| STANDARD.encode(&bytes))
+                    .unwrap_or_else(|_| "failed to serialize".to_string());
+
+                error!(
+                    self.logger,
+                    "Failed to send transaction";
+                    "error" => %e,
+                    "tx_base64" => %tx_base64,
+                );
+                SolverError::Component(format!("Failed to send transaction: {}", e))
+            })?;
 
         Ok(signature.to_string())
     }
@@ -202,16 +234,45 @@ impl SvmWriter {
         let token_in_mint = Pubkey::new_from_array(order_data.token_in);
         let recipient = Pubkey::new_from_array(order_data.recipient);
 
-        let solver_token_out_account =
-            get_associated_token_address(&solver_pubkey, &token_out_mint);
-        let recipient_token_out_ata = get_associated_token_address(&recipient, &token_out_mint);
-        let solver_token_in_account = get_associated_token_address(&solver_pubkey, &token_in_mint);
-        let order_token_in_ata = get_associated_token_address(&order_account, &token_in_mint);
+        // Determine the correct token program for each mint
+        let token_out_program = self
+            .get_token_program_for_mint(&rpc_client, &token_out_mint)
+            .await?;
+        let token_in_program = self
+            .get_token_program_for_mint(&rpc_client, &token_in_mint)
+            .await?;
+
+        let solver_token_out_account = get_associated_token_address_with_program_id(
+            &solver_pubkey,
+            &token_out_mint,
+            &token_out_program,
+        );
+        let recipient_token_out_ata = get_associated_token_address_with_program_id(
+            &recipient,
+            &token_out_mint,
+            &token_out_program,
+        );
+        let solver_token_in_account = get_associated_token_address_with_program_id(
+            &solver_pubkey,
+            &token_in_mint,
+            &token_in_program,
+        );
+        let order_token_in_ata = get_associated_token_address_with_program_id(
+            &order_account,
+            &token_in_mint,
+            &token_in_program,
+        );
 
         let fill_params = order_book::instructions::fill::FillParams {
             amount_out_to_fill: amount_out_to_fill as u64,
             origin_recipient: solver_pubkey.to_bytes(),
         };
+
+        // Check if solver's token_in ATA exists, create instruction if needed
+        let solver_token_in_exists = rpc_client
+            .get_account(&solver_token_in_account)
+            .await
+            .is_ok();
 
         // Build instruction data using Anchor format:
         let mut ix_data = vec![];
@@ -232,14 +293,14 @@ impl SvmWriter {
             AccountMeta::new(solver_token_out_account, false),
             AccountMeta::new_readonly(recipient, false),
             AccountMeta::new(recipient_token_out_ata, false),
-            AccountMeta::new_readonly(spl_token::ID, false),
+            AccountMeta::new_readonly(token_out_program, false),
             AccountMeta::new_readonly(spl_associated_token_account::ID, false),
             AccountMeta::new_readonly(system_program::ID, false),
             AccountMeta::new(order_account, false),
             AccountMeta::new_readonly(token_in_mint, false),
             AccountMeta::new(solver_token_in_account, false),
             AccountMeta::new(order_token_in_ata, false),
-            AccountMeta::new_readonly(spl_token::ID, false),
+            AccountMeta::new_readonly(token_in_program, false),
             AccountMeta::new_readonly(event_authority, false),
         ];
 
@@ -249,8 +310,23 @@ impl SvmWriter {
             data: ix_data,
         };
 
+        // Build instructions list
+        let mut instructions = vec![];
+
+        // Add create ATA instruction if solver's token_in account doesn't exist
+        if !solver_token_in_exists {
+            instructions.push(create_associated_token_account_idempotent(
+                &solver_pubkey,
+                &solver_pubkey,
+                &token_in_mint,
+                &token_in_program,
+            ));
+        }
+
+        instructions.push(ix);
+
         // Build and send versioned transaction (with LUT if available)
-        self.build_and_send_versioned_transaction(&rpc_client, vec![ix], dest_chain_id)
+        self.build_and_send_versioned_transaction(&rpc_client, instructions, dest_chain_id)
             .await
     }
 
@@ -289,9 +365,21 @@ impl SvmWriter {
         let token_out_mint = Pubkey::new_from_array(order_data.token_out);
         let recipient = Pubkey::new_from_array(order_data.recipient);
 
-        let solver_token_out_account =
-            get_associated_token_address(&solver_pubkey, &token_out_mint);
-        let recipient_token_out_ata = get_associated_token_address(&recipient, &token_out_mint);
+        // Determine the correct token program for the token_out mint
+        let token_out_program = self
+            .get_token_program_for_mint(&rpc_client, &token_out_mint)
+            .await?;
+
+        let solver_token_out_account = get_associated_token_address_with_program_id(
+            &solver_pubkey,
+            &token_out_mint,
+            &token_out_program,
+        );
+        let recipient_token_out_ata = get_associated_token_address_with_program_id(
+            &recipient,
+            &token_out_mint,
+            &token_out_program,
+        );
 
         let fill_params = order_book::instructions::fill::FillParams {
             amount_out_to_fill: amount_out_to_fill as u64,
@@ -317,7 +405,7 @@ impl SvmWriter {
             AccountMeta::new(solver_token_out_account, false),
             AccountMeta::new_readonly(recipient, false),
             AccountMeta::new(recipient_token_out_ata, false),
-            AccountMeta::new_readonly(spl_token::ID, false),
+            AccountMeta::new_readonly(token_out_program, false),
             AccountMeta::new_readonly(spl_associated_token_account::ID, false),
             AccountMeta::new_readonly(system_program::ID, false),
             AccountMeta::new(order_account, false),
@@ -399,6 +487,24 @@ impl EventHandler for SvmWriter {
                 // Only handle SVM destination chains
                 if chain_runtime(dest_chain_id) != ChainRuntime::Svm {
                     return Ok(vec![]);
+                }
+
+                // Wait until order's created_at timestamp before filling
+                let now = std::time::SystemTime::now()
+                    .duration_since(std::time::UNIX_EPOCH)
+                    .unwrap()
+                    .as_secs()
+                    - 15; // Subtract 15 seconds to account for chain time drift
+                if now < order.data.created_at as u64 {
+                    let wait_secs = order.data.created_at as u64 - now;
+                    info!(
+                        self.logger,
+                        "Waiting for order created_at timestamp";
+                        "order_id" => %e.order_id,
+                        "created_at" => order.data.created_at,
+                        "wait_secs" => wait_secs,
+                    );
+                    tokio::time::sleep(std::time::Duration::from_secs(wait_secs)).await;
                 }
 
                 let order_id = &e.order_id;
