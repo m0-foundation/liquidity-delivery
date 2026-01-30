@@ -417,6 +417,7 @@ impl BaseTestSuite {
                 order_book_address: chain.contract_address.to_string(),
                 portal_program_id: None,
                 bridge_adapter: None,
+                lut_address: None,
             });
         }
 
@@ -429,6 +430,7 @@ impl BaseTestSuite {
                 order_book_address: "MzLoYnJ6sF6eeejs4vV95TNmXqS3W4cAtLGKkjT4ZrK".to_string(),
                 portal_program_id: Some("MzBrgc8yXBj4P16GTkcSyDZkEQZB9qDqf3fh9bByJce".to_string()),
                 bridge_adapter: None,
+                lut_address: None,
             });
         }
 

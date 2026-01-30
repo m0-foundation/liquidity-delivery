@@ -3,6 +3,8 @@ import {
   sendTransaction,
   getAccount,
   waitForTransactionReceipt,
+  switchChain,
+  getChainId,
 } from "@wagmi/core";
 import { Connection, Transaction, VersionedTransaction } from "@solana/web3.js";
 import { wagmiConfig } from "../wallets";
@@ -11,6 +13,9 @@ import type { Wallet } from "ethers";
 import type { Keypair } from "@solana/web3.js";
 import type { EvmTransaction } from "./useQuoter";
 import type Solflare from "@solflare-wallet/sdk";
+
+// Supported chain IDs matching wagmi config (mainnet, sepolia, base, baseSepolia, arbitrumSepolia)
+type SupportedChainId = 1 | 8453 | 11155111 | 84532 | 421614;
 
 // OrderOpened event signature: OrderOpened(bytes32 indexed orderId, address sender, address tokenIn, uint128 amountIn, uint32 indexed destChainId, bytes32 tokenOut, uint128 amountOut, bytes32 indexed solver)
 const ORDER_OPENED_EVENT_SIGNATURE = keccak256(
@@ -32,12 +37,25 @@ export function useSwap() {
   const error = ref<string | null>(null);
 
   /**
+   * Ensure the wallet is connected to the correct chain, switching if necessary
+   */
+  async function ensureCorrectChain(targetChainId: number): Promise<void> {
+    const currentChainId = getChainId(wagmiConfig);
+    if (currentChainId !== targetChainId) {
+      await switchChain(wagmiConfig, {
+        chainId: targetChainId as SupportedChainId,
+      });
+    }
+  }
+
+  /**
    * Send a single EVM transaction and optionally wait for confirmation
    */
   async function sendEvmTransaction(
     tx: EvmTransaction,
     localSigner?: Wallet | null,
     waitForConfirmation = false,
+    chainId?: number,
   ): Promise<string> {
     if (localSigner) {
       // Local mode - sign and send directly with ethers
@@ -57,10 +75,16 @@ export function useSwap() {
         throw new Error("EVM wallet not connected");
       }
 
+      // Switch to the correct chain if specified and different from current
+      if (chainId) {
+        await ensureCorrectChain(chainId);
+      }
+
       const txHash = await sendTransaction(wagmiConfig, {
         to: tx.to as `0x${string}`,
         data: tx.data as `0x${string}`,
         value: BigInt(tx.value),
+        chainId: chainId as SupportedChainId | undefined,
       });
 
       if (waitForConfirmation) {
@@ -75,7 +99,7 @@ export function useSwap() {
    * Parse the actual order ID from EVM transaction receipt logs
    */
   function parseOrderIdFromLogs(
-    logs: ReadonlyArray<{ topics: readonly string[] }>,
+    logs: ReadonlyArray<{ topics: readonly string[]; data: string }>,
   ): string | null {
     for (const log of logs) {
       // Check if this is an OrderOpened event (first topic is the event signature)
@@ -83,9 +107,9 @@ export function useSwap() {
         log.topics[0]?.toLowerCase() ===
         ORDER_OPENED_EVENT_SIGNATURE.toLowerCase()
       ) {
-        // The orderId is the second topic (first indexed parameter)
-        const orderId = log.topics[1];
-        if (orderId) {
+        // The orderId is the first field in the data (non-indexed)
+        if (log.data && log.data.length >= 66) {
+          const orderId = "0x" + log.data.slice(2, 66);
           return orderId;
         }
       }
@@ -101,6 +125,7 @@ export function useSwap() {
     orderId: string,
     approvalTransaction?: EvmTransaction,
     localSigner?: Wallet | null,
+    chainId?: number,
   ): Promise<SwapResult> {
     loading.value = true;
     error.value = null;
@@ -114,11 +139,17 @@ export function useSwap() {
           approvalTransaction,
           localSigner,
           true,
+          chainId,
         );
       }
 
       // Send the main open order transaction
-      const txHash = await sendEvmTransaction(evmTransaction, localSigner);
+      const txHash = await sendEvmTransaction(
+        evmTransaction,
+        localSigner,
+        false,
+        chainId,
+      );
 
       // Wait for the transaction receipt to get the actual order ID from logs
       let actualOrderId = orderId;
@@ -246,6 +277,7 @@ export function useSwap() {
       svmTransaction?: string;
       orderId: string;
       svmRpcUrl?: string;
+      srcChainId?: number;
       localEvmSigner?: Wallet | null;
       localSvmKeypair?: Keypair | null;
       solflareWallet?: Solflare | null;
@@ -257,6 +289,7 @@ export function useSwap() {
       svmTransaction,
       orderId,
       svmRpcUrl,
+      srcChainId,
       localEvmSigner,
       localSvmKeypair,
       solflareWallet,
@@ -271,6 +304,7 @@ export function useSwap() {
         orderId,
         approvalTransaction,
         localEvmSigner,
+        srcChainId,
       );
     } else {
       if (!svmTransaction) {

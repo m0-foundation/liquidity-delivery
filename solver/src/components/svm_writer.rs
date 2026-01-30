@@ -1,11 +1,14 @@
 use anchor_client::anchor_lang::AnchorSerialize;
+use anchor_client::solana_sdk::address_lookup_table::state::AddressLookupTable;
 use anchor_client::solana_sdk::{
+    address_lookup_table::AddressLookupTableAccount,
     instruction::{AccountMeta, Instruction},
+    message::{v0, VersionedMessage},
     pubkey::Pubkey,
     signature::Keypair,
     signer::Signer,
     system_program,
-    transaction::Transaction,
+    transaction::VersionedTransaction,
 };
 use async_trait::async_trait;
 use m0_liquidity_sdk::types::ChainRuntime;
@@ -87,6 +90,89 @@ impl SvmWriter {
         })
     }
 
+    fn get_lut_address(&self, chain_id: u32) -> Option<Pubkey> {
+        self.chains
+            .iter()
+            .find(|c| c.chain_id == chain_id)
+            .and_then(|c| c.lut_address.as_ref())
+            .and_then(|addr| Pubkey::from_str(addr).ok())
+    }
+
+    async fn fetch_lut_account(
+        &self,
+        rpc_client: &solana_client::nonblocking::rpc_client::RpcClient,
+        lut_address: &Pubkey,
+    ) -> Result<AddressLookupTableAccount> {
+        let account = rpc_client
+            .get_account(lut_address)
+            .await
+            .map_err(|e| SolverError::Component(format!("Failed to fetch LUT account: {}", e)))?;
+
+        let lookup_table = AddressLookupTableAccount {
+            key: *lut_address,
+            addresses: AddressLookupTable::deserialize(&account.data)
+                .map_err(|e| SolverError::Component(format!("Failed to deserialize LUT: {}", e)))?
+                .addresses
+                .to_vec(),
+        };
+
+        Ok(lookup_table)
+    }
+
+    async fn build_and_send_versioned_transaction(
+        &self,
+        rpc_client: &solana_client::nonblocking::rpc_client::RpcClient,
+        instructions: Vec<Instruction>,
+        chain_id: u32,
+    ) -> Result<String> {
+        let recent_blockhash = rpc_client.get_latest_blockhash().await.map_err(|e| {
+            SolverError::Component(format!("Failed to get recent blockhash: {}", e))
+        })?;
+
+        let payer = self.keypair.pubkey();
+
+        // Try to use LUT if available
+        let address_lookup_tables = if let Some(lut_address) = self.get_lut_address(chain_id) {
+            match self.fetch_lut_account(rpc_client, &lut_address).await {
+                Ok(lut) => vec![lut],
+                Err(e) => {
+                    error!(
+                        self.logger,
+                        "Failed to fetch LUT, falling back to legacy transaction";
+                        "error" => %e,
+                    );
+                    vec![]
+                }
+            }
+        } else {
+            vec![]
+        };
+
+        // Build versioned message (v0)
+        let message = v0::Message::try_compile(
+            &payer,
+            &instructions,
+            &address_lookup_tables,
+            recent_blockhash,
+        )
+        .map_err(|e| SolverError::Component(format!("Failed to compile message: {}", e)))?;
+
+        let versioned_message = VersionedMessage::V0(message);
+
+        // Sign the versioned transaction
+        let tx = VersionedTransaction::try_new(versioned_message, &[self.keypair.as_ref()])
+            .map_err(|e| {
+                SolverError::Component(format!("Failed to sign versioned transaction: {}", e))
+            })?;
+
+        let signature = rpc_client
+            .send_and_confirm_transaction(&tx)
+            .await
+            .map_err(|e| SolverError::Component(format!("Failed to send transaction: {}", e)))?;
+
+        Ok(signature.to_string())
+    }
+
     async fn fill_native_order(
         &self,
         order_id: &str,
@@ -163,29 +249,9 @@ impl SvmWriter {
             data: ix_data,
         };
 
-        // Build and send transaction
-        let recent_blockhash = rpc_client.get_latest_blockhash().await.map_err(|e| {
-            SolverError::Component(format!("Failed to get recent blockhash: {}", e))
-        })?;
-
-        let tx = Transaction::new_signed_with_payer(
-            &[ix],
-            Some(&solver_pubkey),
-            &[self.keypair.as_ref()],
-            recent_blockhash,
-        );
-
-        let signature = rpc_client
-            .send_and_confirm_transaction(&tx)
+        // Build and send versioned transaction (with LUT if available)
+        self.build_and_send_versioned_transaction(&rpc_client, vec![ix], dest_chain_id)
             .await
-            .map_err(|e| {
-                SolverError::Component(format!(
-                    "Failed to send fill_native_order transaction: {}",
-                    e
-                ))
-            })?;
-
-        Ok(signature.to_string())
     }
 
     async fn fill_foreign_order(
@@ -305,29 +371,9 @@ impl SvmWriter {
             instructions.push(relay_ix);
         }
 
-        // Build and send transaction
-        let recent_blockhash = rpc_client.get_latest_blockhash().await.map_err(|e| {
-            SolverError::Component(format!("Failed to get recent blockhash: {}", e))
-        })?;
-
-        let tx = Transaction::new_signed_with_payer(
-            &instructions,
-            Some(&solver_pubkey),
-            &[self.keypair.as_ref()],
-            recent_blockhash,
-        );
-
-        let signature = rpc_client
-            .send_and_confirm_transaction(&tx)
+        // Build and send versioned transaction (with LUT if available)
+        self.build_and_send_versioned_transaction(&rpc_client, instructions, dest_chain_id)
             .await
-            .map_err(|e| {
-                SolverError::Component(format!(
-                    "Failed to send fill_foreign_order transaction: {}",
-                    e
-                ))
-            })?;
-
-        Ok(signature.to_string())
     }
 }
 

@@ -7,6 +7,7 @@ export interface NetworkConfig {
   ethereumRpc: string;
   solanaRpc: string;
   baseRpc?: string;
+  arbitrumRpc?: string;
 }
 
 const configs: Record<NetworkType, NetworkConfig> = {
@@ -25,6 +26,7 @@ const configs: Record<NetworkType, NetworkConfig> = {
     ethereumRpc: import.meta.env.VITE_DEVNET_ETHEREUM_RPC,
     solanaRpc: import.meta.env.VITE_DEVNET_SOLANA_RPC,
     baseRpc: import.meta.env.VITE_DEVNET_BASE_RPC,
+    arbitrumRpc: import.meta.env.VITE_DEVNET_ARBITRUM_RPC,
   },
   mainnet: {
     quoterUrl: import.meta.env.VITE_QUOTER_URL_MAINNET,
@@ -33,6 +35,7 @@ const configs: Record<NetworkType, NetworkConfig> = {
     ordersApiUrl: import.meta.env.VITE_ORDERS_API_LOCAL,
     solanaRpc: import.meta.env.VITE_MAINNET_SOLANA_RPC,
     baseRpc: import.meta.env.VITE_MAINNET_BASE_RPC,
+    arbitrumRpc: import.meta.env.VITE_MAINNET_ARBITRUM_RPC,
   },
 };
 
@@ -62,4 +65,8 @@ export function getSolanaRpc(network: NetworkType): string {
 
 export function getBaseRpc(network: NetworkType): string | undefined {
   return configs[network].baseRpc;
+}
+
+export function getArbitrumRpc(network: NetworkType): string | undefined {
+  return configs[network].arbitrumRpc;
 }

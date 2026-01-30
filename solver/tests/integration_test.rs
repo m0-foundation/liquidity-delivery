@@ -336,6 +336,7 @@ impl AsyncTestContext for TestSuite {
                 order_book_address: chain.contract_address.to_string(),
                 portal_program_id: None,
                 bridge_adapter: None,
+                lut_address: None,
             });
         }
 

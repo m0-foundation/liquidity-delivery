@@ -1,10 +1,13 @@
 use crate::{
-    constants::{ANCHOR_DISCRIMINATOR_SIZE, VERSION}, 
+    constants::{ANCHOR_DISCRIMINATOR_SIZE, VERSION},
     error::OrderBookError,
     state::{
-        ForeignOrder, GLOBAL_SEED, NativeOrder, ORDER_SEED_PREFIX, Order, 
-        OrderBookGlobal, OrderData, OrderStatus, OrderType, compute_order_id
-    }, utils::{transfer_tokens_from_program, transfer_exact_tokens, transfer_exact_tokens_from_program}
+        compute_order_id, ForeignOrder, NativeOrder, Order, OrderBookGlobal, OrderData,
+        OrderStatus, OrderType, GLOBAL_SEED, ORDER_SEED_PREFIX,
+    },
+    utils::{
+        transfer_exact_tokens, transfer_exact_tokens_from_program, transfer_tokens_from_program,
+    },
 };
 use anchor_lang::prelude::*;
 use anchor_spl::{
@@ -16,7 +19,7 @@ use crate::portal::{
     constants::{AUTHORITY_SEED as PORTAL_AUTHORITY_SEED, GLOBAL_SEED as PORTAL_GLOBAL_SEED},
     cpi::{accounts::SendFillReport, send_fill_report},
     program::Portal,
-    ID as PORTAL_ID
+    ID as PORTAL_ID,
 };
 
 // Instructions related to filling orders
@@ -131,7 +134,8 @@ pub struct FillNativeOrder<'info> {
         bump = order.bump,
         constraint = order.order_type == OrderType::Native @ OrderBookError::InvalidOrderType
     )]
-    pub order: Account<'info, Order::<NativeOrder>>,
+    #[rustfmt::skip]
+    pub order: Box<Account<'info, Order::<NativeOrder>>>,
 
     #[account(
         mint::token_program = token_in_program,
@@ -199,7 +203,7 @@ impl FillNativeOrder<'_> {
             order_data.amount_out,
             order.amount_in_released,
             order.amount_out_filled,
-            fill_params.amount_out_to_fill as u128
+            fill_params.amount_out_to_fill as u128,
         )?;
 
         if full_fill {
@@ -308,7 +312,8 @@ pub struct FillForeignOrder<'info> {
         seeds = [ORDER_SEED_PREFIX, &order_id],
         bump
     )]
-    pub order: Account<'info, Order::<ForeignOrder>>,
+    #[rustfmt::skip]
+    pub order: Box<Account<'info, Order::<ForeignOrder>>>,
 
     pub portal_program: Program<'info, Portal>,
 
@@ -350,12 +355,14 @@ impl<'info> FillForeignOrder<'info> {
 
         // Validate the order status is fillable (i.e. DoesNotExist or Created, if already partially filled)
         require!(
-            self.order.data.status == OrderStatus::DoesNotExist || self.order.data.status == OrderStatus::Created,
+            self.order.data.status == OrderStatus::DoesNotExist
+                || self.order.data.status == OrderStatus::Created,
             OrderBookError::OrderNotFillable
         );
 
         // Prevent front-running: foreign order must not originate from this chain
-        require!(order_data.origin_chain_id != self.global_account.chain_id,
+        require!(
+            order_data.origin_chain_id != self.global_account.chain_id,
             OrderBookError::InvalidOriginChainId
         );
 
@@ -384,8 +391,8 @@ impl<'info> FillForeignOrder<'info> {
                     status: OrderStatus::Created,
                     amount_in_released: 0,
                     amount_out_filled: 0,
-                    amount_in_refunded: 0
-                }
+                    amount_in_refunded: 0,
+                },
             });
         } else {
             // Otherwise, validate the type of the order
@@ -404,7 +411,7 @@ impl<'info> FillForeignOrder<'info> {
             order_data.amount_out,
             order.amount_in_released,
             order.amount_out_filled,
-            fill_params.amount_out_to_fill as u128
+            fill_params.amount_out_to_fill as u128,
         )?;
 
         if full_fill {
@@ -442,12 +449,12 @@ impl<'info> FillForeignOrder<'info> {
                 &[&[GLOBAL_SEED, &[ctx.accounts.global_account.bump]]],
             )
             .with_remaining_accounts(ctx.remaining_accounts.to_vec()),
-            order_id, // order_id: [u8; 32],
-            order_data.token_in, // token_in: [u8; 32],
+            order_id,                     // order_id: [u8; 32],
+            order_data.token_in,          // token_in: [u8; 32],
             amount_in_to_release as u128, // amount_in_to_release: u128,
-            amount_out_to_fill as u128, // amount_out_filled: u128,
+            amount_out_to_fill as u128,   // amount_out_filled: u128,
             fill_params.origin_recipient, // origin_recipient: [u8; 32],
-            order_data.origin_chain_id, // origin_chain_id: u32,
+            order_data.origin_chain_id,   // origin_chain_id: u32,
         )?;
 
         // Emit a fill event
@@ -536,7 +543,8 @@ pub struct ReportOrderFill<'info> {
         bump = order.bump,
         constraint = order.data.dest_chain_id == source_chain_id @ OrderBookError::InvalidReportSource,
     )]
-    pub order: Account<'info, Order::<NativeOrder>>,
+    #[rustfmt::skip]
+    pub order: Box<Account<'info, Order::<NativeOrder>>>,
 
     #[account(
         address = order.data.token_in @ OrderBookError::InvalidTokenMint,
@@ -604,7 +612,11 @@ impl ReportOrderFill<'_> {
     }
 
     #[access_control(ctx.accounts.validate(&fill_report))]
-    pub fn handler(ctx: Context<Self>, _source_chain_id: u32, fill_report: FillReport) -> Result<()> {
+    pub fn handler(
+        ctx: Context<Self>,
+        _source_chain_id: u32,
+        fill_report: FillReport,
+    ) -> Result<()> {
         let order = &mut ctx.accounts.order.data;
 
         // Calculate fill to determine if it completely fills the order
@@ -613,7 +625,7 @@ impl ReportOrderFill<'_> {
             order.amount_out,
             order.amount_in_released,
             order.amount_out_filled,
-            fill_report.amount_out_filled
+            fill_report.amount_out_filled,
         )?;
 
         // Update the filled amounts on the order
@@ -640,7 +652,7 @@ impl ReportOrderFill<'_> {
         if full_fill {
             // Mark the order as completed if fully filled
             order.status = OrderStatus::Completed;
-            emit_cpi!(OrderCompleted { 
+            emit_cpi!(OrderCompleted {
                 order_id: fill_report.order_id
             });
         };
@@ -678,10 +690,12 @@ fn calculate_fill(
     total_amount_out_: u128,
     amount_in_released_: u128,
     amount_out_filled_: u128,
-    amount_out_to_fill_: u128
+    amount_out_to_fill_: u128,
 ) -> Result<(bool, u64, u64)> {
     // Determine the amount out to fill as the minimum of the filler provided amount and the remaining unfilled amount
-    let amount_out_remaining_ = total_amount_out_.checked_sub(amount_out_filled_).ok_or(OrderBookError::MathUnderflow)?;
+    let amount_out_remaining_ = total_amount_out_
+        .checked_sub(amount_out_filled_)
+        .ok_or(OrderBookError::MathUnderflow)?;
     let full_fill_ = amount_out_to_fill_ >= amount_out_remaining_;
     let amount_out_to_fill_ = if full_fill_ {
         amount_out_remaining_
@@ -691,15 +705,24 @@ fn calculate_fill(
 
     // Calculate the corresponding amount of token in to release to the filler
     let amount_in_to_release_ = if full_fill_ {
-        total_amount_in_.checked_sub(amount_in_released_).ok_or(OrderBookError::MathUnderflow)? // remaining amount
+        total_amount_in_
+            .checked_sub(amount_in_released_)
+            .ok_or(OrderBookError::MathUnderflow)? // remaining amount
     } else {
-        total_amount_in_.checked_mul(amount_out_to_fill_).ok_or(OrderBookError::MathOverflow)?
-            .checked_div(total_amount_out_).ok_or(OrderBookError::MathUnderflow)?
+        total_amount_in_
+            .checked_mul(amount_out_to_fill_)
+            .ok_or(OrderBookError::MathOverflow)?
+            .checked_div(total_amount_out_)
+            .ok_or(OrderBookError::MathUnderflow)?
     };
 
     Ok((
-        full_fill_, 
-        amount_in_to_release_.try_into().map_err(|_| OrderBookError::InvalidFillAmount)?, 
-        amount_out_to_fill_.try_into().map_err(|_| OrderBookError::InvalidFillAmount)?
+        full_fill_,
+        amount_in_to_release_
+            .try_into()
+            .map_err(|_| OrderBookError::InvalidFillAmount)?,
+        amount_out_to_fill_
+            .try_into()
+            .map_err(|_| OrderBookError::InvalidFillAmount)?,
     ))
 }

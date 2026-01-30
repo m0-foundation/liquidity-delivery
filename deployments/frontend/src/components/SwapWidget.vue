@@ -63,6 +63,7 @@ const chains = computed(() => {
   } else if (props.network === 'devnet') {
     return [
       { id: 'ethereum', name: 'Sepolia', chainId: 11155111, rpc: config.ethereumRpc },
+      { id: 'arbitrum', name: 'Arbitrum Sepolia', chainId: 421614, rpc: config.arbitrumRpc || 'https://sepolia-rollup.arbitrum.io/rpc' },
       { id: 'solana', name: 'Solana Devnet', chainId: 1399811150, rpc: config.solanaRpc },
     ]
   } else {
@@ -387,6 +388,7 @@ async function handleSwap() {
       // orderId may be undefined for EVM (extracted from tx logs instead)
       orderId: quote.value.orderId ?? '',
       svmRpcUrl: srcChain.rpc,
+      srcChainId: srcChain.chainId,
       localEvmSigner: props.evmSigner,
       localSvmKeypair: props.svmKeypair,
       solflareWallet: props.solflareWallet,

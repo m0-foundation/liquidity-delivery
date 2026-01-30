@@ -110,6 +110,7 @@ struct ChainConfigFile {
     order_book_address: String,
     portal_program_id: Option<String>,
     bridge_adapter: Option<String>,
+    lut_address: Option<String>,
 }
 
 #[derive(Clone, Debug, Deserialize)]
@@ -205,6 +206,7 @@ impl Config {
                 order_book_address: c.order_book_address,
                 portal_program_id: c.portal_program_id,
                 bridge_adapter: c.bridge_adapter,
+                lut_address: c.lut_address,
             })
             .collect();
 
@@ -269,6 +271,8 @@ pub struct ChainConfig {
     pub order_book_address: String,
     pub portal_program_id: Option<String>,
     pub bridge_adapter: Option<String>,
+    /// Optional Address Lookup Table for reducing SVM transaction sizes
+    pub lut_address: Option<String>,
 }
 
 #[derive(Error, Debug)]

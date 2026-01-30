@@ -41,6 +41,12 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     // Load config for transaction builder (optional - gracefully handle missing config)
     let config_path = env::var("QUOTER_CONFIG").unwrap_or_else(|_| "config.yaml".to_string());
     let config = QuoterConfig::from_file(&config_path).ok();
+    info!(
+        logger,
+        "Loaded quoter config";
+        "path" => %config_path,
+        "found" => config.is_some()
+    );
 
     let grpc_service = QuoteGrpcService::new(quote_timeout_ms, logger.clone());
     let grpc_host = env::var("GRPC_HOST").unwrap_or_else(|_| "[::1]".to_string());

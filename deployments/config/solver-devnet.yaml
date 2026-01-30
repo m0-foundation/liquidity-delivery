@@ -18,7 +18,7 @@ rpc_rate_limit:
   burst_size: 20
 
 # Order configuration
-max_order_clip_size: 5000
+max_order_clip_size: 2
 max_clip_reprocess_delay_sec: 60
 solver_fee_bps: 5
 auto_rebalance: false
@@ -28,7 +28,9 @@ svm_private_key: "2MqZwxzsfaEvQvnj4CgvUo2aknYXxJW2bBn5ewbftnbjU9DAtWX1XzCHy7Wd8d
 
 # Asset configuration
 supported_assets:
-  third_party_whitelist: []
+  third_party_whitelist: [
+    "0x1c7D4B196Cb0C7B01d743Fbc6116a902379C7238", # USDC Sepolia
+  ]
   first_party_blacklist: []
 
 # Chain configuration
@@ -48,6 +50,7 @@ chains:
     ws_url: wss://devnet.helius-rpc.com/?api-key=c5cd4e3c-bba3-47ce-bec8-74a82995a1c1
     order_book_address: "MzLoYnJ6sF6eeejs4vV95TNmXqS3W4cAtLGKkjT4ZrK"
     enabled: true
+    lut_address: "78tUqtX1GGTKcsye4dtUTKbKqBDnhC8sawfeXQDnr7H"
 
   # Arbitrum Sepolia Testnet
   - chain_id: 421614

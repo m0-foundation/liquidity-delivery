@@ -1,5 +1,5 @@
 import { createConfig, http } from "@wagmi/core";
-import { mainnet, sepolia, baseSepolia } from "@wagmi/core/chains";
+import { mainnet, sepolia, baseSepolia, arbitrumSepolia } from "@wagmi/core/chains";
 import { injected } from "@wagmi/connectors";
 import Solflare from "@solflare-wallet/sdk";
 import { getEthereumRpc, type NetworkType } from "./config/network";
@@ -17,7 +17,7 @@ const base = {
 // Wagmi config for EVM wallet connections
 // Uses injected connector for browser extension wallets (Rabby, MetaMask, etc.)
 export const wagmiConfig = createConfig({
-  chains: [mainnet, sepolia, base, baseSepolia],
+  chains: [mainnet, sepolia, base, baseSepolia, arbitrumSepolia],
   connectors: [
     injected({
       shimDisconnect: true,
@@ -36,6 +36,8 @@ export const wagmiConfig = createConfig({
     [base.id]: http(),
     // Base Sepolia (devnet)
     [baseSepolia.id]: http(),
+    // Arbitrum Sepolia (devnet)
+    [arbitrumSepolia.id]: http(),
   },
 });
 

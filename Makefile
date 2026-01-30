@@ -40,6 +40,7 @@ deploy-quoter:
 
 deploy-dashboard:
 	railway environment devnet
+	op inject -f -i deployments/frontend/.env.tpl -o deployments/frontend/.env
 	docker build --platform linux/amd64 -t ghcr.io/m0-foundation/liquidity-delivery:dashboard -f deployments/frontend/Dockerfile deployments/frontend
 	docker push ghcr.io/m0-foundation/liquidity-delivery:dashboard
 	sleep 1
@@ -48,3 +49,11 @@ deploy-dashboard:
 deploy-orderbook-devnet:
 	anchor build -p order_book
 	surfpool run deployment --env devnet --unsupervised
+
+create-lookup-table:
+	solana address-lookup-table create
+
+# Devnet: 	78tUqtX1GGTKcsye4dtUTKbKqBDnhC8sawfeXQDnr7H
+# Mainnet: 	52jvd5uEcgemmXzhmyaAxPSPQgHFdSQgKwVfauattsE3
+extend-lookup-table:
+	solana address-lookup-table extend $(table) --addresses $(addresses)

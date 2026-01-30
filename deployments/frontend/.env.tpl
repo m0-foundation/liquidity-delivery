@@ -25,6 +25,7 @@ VITE_LOCALNET_BASE_RPC=http://localhost:8546
 # =============================================================================
 VITE_DEVNET_ETHEREUM_RPC="op://Solana Dev/Alchemy/sepolia"
 VITE_DEVNET_SOLANA_RPC="op://Solana Dev/Helius/dev rpc"
+VITE_DEVNET_ARBITRUM_RPC="op://Solana Dev/Alchemy/arbitrum-sepolia"
 
 # =============================================================================
 # MAINNET RPC ENDPOINTS (Ethereum, Solana)

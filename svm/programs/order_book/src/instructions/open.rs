@@ -93,8 +93,9 @@ pub struct OpenOrder<'info> {
                 })
             ],
             bump
-        )]
-    pub order: Account<'info, Order::<NativeOrder>>,
+    )]
+    #[rustfmt::skip]
+    pub order: Box<Account<'info, Order::<NativeOrder>>>,
 
     #[account(
         init_if_needed,
@@ -135,8 +136,11 @@ impl OpenOrder<'_> {
         // Validate params
         require!(params.amount_in > 0, OrderBookError::InvalidAmountIn);
         require!(params.amount_out > 0, OrderBookError::InvalidAmountOut);
-        
-        require!(params.recipient != [0u8; 32], OrderBookError::InvalidRecipient);
+
+        require!(
+            params.recipient != [0u8; 32],
+            OrderBookError::InvalidRecipient
+        );
 
         // On SVM, we allow the user to specify the created at timestamp to be within a small window from the current time
         // so that the PDA address can be precomputed off-chain without having to guess the exact slot it will be included in.
@@ -189,7 +193,7 @@ impl OpenOrder<'_> {
                 solver: params.solver,
                 amount_in_released: 0,
                 amount_out_filled: 0,
-                amount_in_refunded: 0
+                amount_in_refunded: 0,
             },
         });
 

@@ -2,8 +2,10 @@ use alloy::primitives::{Address, U256};
 use async_trait::async_trait;
 use m0_liquidity_sdk::types::ChainRuntime;
 use slog::{error, info, warn, Logger};
+use std::collections::HashMap;
 use std::str::FromStr;
 use std::sync::Arc;
+use tokio::sync::Mutex;
 
 use crate::components::ComponentParams;
 use crate::config::ChainConfig;
@@ -19,16 +21,32 @@ pub struct EvmWriter {
     provider_manager: Arc<ProviderManager>,
     chains: Vec<ChainConfig>,
     logger: Logger,
+    /// Per-chain transaction locks to prevent nonce conflicts
+    tx_locks: HashMap<u32, Arc<Mutex<()>>>,
 }
 
 impl EvmWriter {
     pub fn new(params: &ComponentParams) -> Self {
+        // Create per-chain transaction locks for EVM chains
+        let tx_locks: HashMap<u32, Arc<Mutex<()>>> = params
+            .config
+            .chains
+            .iter()
+            .filter(|c| chain_runtime(c.chain_id) == ChainRuntime::Evm)
+            .map(|c| (c.chain_id, Arc::new(Mutex::new(()))))
+            .collect();
+
         Self {
             order_store: Arc::new(OrderStore::new()),
             provider_manager: params.provider_manager.clone(),
             chains: params.config.chains.clone(),
             logger: params.logger.new(slog::o!("component" => "EvmWriter")),
+            tx_locks,
         }
+    }
+
+    fn get_tx_lock(&self, chain_id: u32) -> Option<Arc<Mutex<()>>> {
+        self.tx_locks.get(&chain_id).cloned()
     }
 
     fn get_order_book_address(&self, chain_id: u32) -> Result<Address> {
@@ -107,6 +125,15 @@ impl EventHandler for EvmWriter {
                 if chain_runtime(dest_chain_id) != ChainRuntime::Evm {
                     return Ok(vec![]);
                 }
+
+                // Acquire per-chain transaction lock to prevent nonce conflicts
+                let tx_lock = self.get_tx_lock(dest_chain_id).ok_or_else(|| {
+                    SolverError::Component(format!(
+                        "No transaction lock for chain {}",
+                        dest_chain_id
+                    ))
+                })?;
+                let _guard = tx_lock.lock().await;
 
                 let order_book_address = self.get_order_book_address(dest_chain_id)?;
                 let provider_wrapper = self

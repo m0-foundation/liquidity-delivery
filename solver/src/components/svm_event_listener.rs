@@ -267,22 +267,36 @@ impl SvmEventListener {
                 let signature = Signature::from_str(&signature_str).unwrap();
                 let rpc_client = provider.client().await;
 
-                // Fetch the transaction
-                let tx = match rpc_client
-                    .get_transaction(&signature, UiTransactionEncoding::Json)
-                    .await
-                {
-                    Ok(transaction) => transaction,
-                    Err(e) => {
-                        error!(
-                            logger,
-                            "Failed to fetch transaction";
-                            "signature" => &signature_str,
-                            "chain_id" => %chain_id,
-                            "error" => %e,
-                        );
-                        continue;
+                // Fetch the transaction with retry logic
+                // The log subscription can fire before the transaction is fully indexed
+                let mut tx = None;
+                for attempt in 0..5 {
+                    tokio::time::sleep(tokio::time::Duration::from_millis(500)).await;
+                    match rpc_client
+                        .get_transaction(&signature, UiTransactionEncoding::Json)
+                        .await
+                    {
+                        Ok(transaction) => {
+                            tx = Some(transaction);
+                            break;
+                        }
+                        Err(e) => {
+                            if attempt == 4 {
+                                error!(
+                                    logger,
+                                    "Failed to fetch transaction after retries";
+                                    "signature" => &signature_str,
+                                    "chain_id" => %chain_id,
+                                    "error" => %e,
+                                );
+                            }
+                        }
                     }
+                }
+
+                let tx = match tx {
+                    Some(t) => t,
+                    None => continue,
                 };
 
                 // Parse all order_book events from transaction

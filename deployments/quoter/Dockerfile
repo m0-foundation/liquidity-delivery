@@ -31,6 +31,7 @@ COPY deployments/config/quoter-*.yaml /app/config/
 # Environment defaults
 ENV QUOTER_ENV=development
 ENV QUOTE_TIMEOUT_MS=500
+ENV QUOTER_CONFIG_PATH=/app/config/quoter-development.yaml
 ENV GRPC_HOST=0.0.0.0
 ENV GRPC_PORT=50051
 ENV API_PORT=3000

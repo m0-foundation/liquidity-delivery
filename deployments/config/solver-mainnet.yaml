@@ -48,3 +48,4 @@ chains:
     ws_url: wss://mainnet.helius-rpc.com/?api-key=c5cd4e3c-bba3-47ce-bec8-74a82995a1c1
     order_book_address: "MzLoYnJ6sF6eeejs4vV95TNmXqS3W4cAtLGKkjT4ZrK"
     enabled: true
+    lut_address: "52jvd5uEcgemmXzhmyaAxPSPQgHFdSQgKwVfauattsE3"

@@ -10,6 +10,7 @@ use solana_sdk::{
     transaction::Transaction,
 };
 use spl_associated_token_account::get_associated_token_address_with_program_id;
+use spl_token_2022;
 use std::str::FromStr;
 use std::time::{SystemTime, UNIX_EPOCH};
 
@@ -90,6 +91,30 @@ impl SvmTransactionBuilder {
         Ok(blockhash)
     }
 
+    /// Fetch the token program ID that owns a mint account
+    async fn get_mint_token_program(
+        &self,
+        mint: &Pubkey,
+    ) -> Result<Pubkey, TransactionBuilderError> {
+        let client = RpcClient::new(self.rpc_url.clone());
+        let account = client
+            .get_account(mint)
+            .await
+            .map_err(|e| TransactionBuilderError::RpcError(e.to_string()))?;
+
+        // The owner of the mint account is the token program
+        if account.owner == spl_token::ID {
+            Ok(spl_token::ID)
+        } else if account.owner == spl_token_2022::ID {
+            Ok(spl_token_2022::ID)
+        } else {
+            Err(TransactionBuilderError::InvalidAddress(format!(
+                "Mint {} is not owned by a known token program",
+                mint
+            )))
+        }
+    }
+
     pub async fn build_open_order_transaction(
         &self,
         input: &OpenOrderInput,
@@ -100,6 +125,9 @@ impl SvmTransactionBuilder {
         let token_in_mint = Pubkey::from_str(&input.token_in)
             .map_err(|e| TransactionBuilderError::InvalidAddress(e.to_string()))?;
 
+        // Determine which token program owns this mint
+        let token_program_id = self.get_mint_token_program(&token_in_mint).await?;
+
         let nonce = self.get_sender_nonce(&sender).await?;
         let blockhash = self.get_recent_blockhash().await?;
         let token_out = parse_bytes32_svm(&input.token_out)?;
@@ -108,7 +136,8 @@ impl SvmTransactionBuilder {
         let created_at = SystemTime::now()
             .duration_since(UNIX_EPOCH)
             .map_err(|e| TransactionBuilderError::SerializationError(e.to_string()))?
-            .as_secs();
+            .as_secs()
+            + 120;
 
         let order_data = OrderData {
             version: VERSION,
@@ -150,13 +179,16 @@ impl SvmTransactionBuilder {
             None
         };
 
-        let sender_token_in_account =
-            get_associated_token_address_with_program_id(&sender, &token_in_mint, &spl_token::ID);
+        let sender_token_in_account = get_associated_token_address_with_program_id(
+            &sender,
+            &token_in_mint,
+            &token_program_id,
+        );
 
         let order_token_in_ata = get_associated_token_address_with_program_id(
             &order_pda,
             &token_in_mint,
-            &spl_token::ID,
+            &token_program_id,
         );
 
         let order_params = OrderParams {
@@ -201,7 +233,7 @@ impl SvmTransactionBuilder {
             AccountMeta::new(nonce_pda, false),
             AccountMeta::new(order_pda, false),
             AccountMeta::new(order_token_in_ata, false),
-            AccountMeta::new_readonly(spl_token::ID, false),
+            AccountMeta::new_readonly(token_program_id, false),
             AccountMeta::new_readonly(spl_associated_token_account::ID, false),
             AccountMeta::new_readonly(system_program::ID, false),
             AccountMeta::new_readonly(event_authority, false),

@@ -38,8 +38,8 @@ action "initialize_orderbook" "svm::process_instructions" {
         }
         instruction_args = [input.chain_id, variable.messenger_authority.pda]
     }
-    pre_condition {
-        behavior = "skip"
-        assertion = jq(action.orderbook_global_account.response_body, ".result.value") == null
-    }
+    // pre_condition {
+    //     behavior = "skip"
+    //     assertion = jq(action.orderbook_global_account.response_body, ".result.value") == null
+    // }
 }

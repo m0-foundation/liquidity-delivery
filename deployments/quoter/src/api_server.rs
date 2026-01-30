@@ -51,7 +51,7 @@ async fn handle_quote_request(
             .find(|c| c.chain_id == request.input_chain_id);
 
         if let Some(chain) = input_chain {
-            let fill_deadline = chrono::Utc::now().timestamp() as u64 + 3600; // 1h from now
+            let fill_deadline = u32::MAX as u64;
             let recipient = request.recipient.as_ref().unwrap_or(sender_address);
 
             for quote in quotes.iter_mut() {

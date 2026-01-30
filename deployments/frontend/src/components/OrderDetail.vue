@@ -1,7 +1,6 @@
 <script setup lang="ts">
 import { ref, computed, watch, onMounted, onUnmounted } from 'vue'
 import { useOrders, type TrackedOrder } from '../composables/useOrders'
-import { useFilledAmounts } from '../composables/useFilledAmounts'
 import { useAssets } from '../composables/useAssets'
 
 const props = defineProps<{
@@ -13,7 +12,6 @@ const emit = defineEmits<{
   (e: 'back'): void
 }>()
 
-const { clearFilledAmounts } = useFilledAmounts()
 const networkRef = computed(() => props.network)
 const { assets } = useAssets(networkRef)
 const { orders, fetchOrders, getOrder } = useOrders(networkRef)
@@ -85,6 +83,7 @@ function getChainName(chainId: number): string {
     1: 'Ethereum',
     8453: 'Base',
     42161: 'Arbitrum',
+    421614: 'Arbitrum Sepolia',
     11155111: 'Sepolia',
     84532: 'Base Sepolia',
     1399811149: 'Solana',
@@ -103,6 +102,7 @@ function getChainColor(chainId: number): string {
     1: '#627eea',
     8453: '#0052ff',
     42161: '#28a0f0',
+    421614: '#28a0f0',
     11155111: '#627eea',
     84532: '#0052ff',
     1399811149: '#9945ff',
@@ -116,6 +116,7 @@ function getChainGradient(chainId: number): string {
     1: 'from-[#627eea] to-[#4a5fc1]',
     8453: 'from-[#0052ff] to-[#003acc]',
     42161: 'from-[#28a0f0] to-[#1c7ac0]',
+    421614: 'from-[#28a0f0] to-[#1c7ac0]',
     11155111: 'from-[#627eea] to-[#4a5fc1]',
     84532: 'from-[#0052ff] to-[#003acc]',
     1399811149: 'from-[#9945ff] to-[#14f195]',
@@ -158,7 +159,6 @@ async function copyToClipboard(text: string, fieldName: string) {
 function goBack() {
   stopPolling()
   selectedOrder.value = undefined
-  clearFilledAmounts()
   emit('back')
 }
 
