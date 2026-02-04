@@ -56,3 +56,55 @@ pub struct QuoteResponse {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub orderbook_address: Option<String>,
 }
+
+/// Request to build a cancel order transaction
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct CancelRequest {
+    /// Order ID to cancel (hex string with 0x prefix)
+    pub order_id: String,
+    /// Origin chain where the order was created
+    pub origin_chain_id: u32,
+    /// Destination chain where the order will be filled/cancelled
+    pub dest_chain_id: u32,
+    /// Order version
+    pub version: u16,
+    /// Order nonce
+    pub nonce: u64,
+    /// Timestamp when order was created
+    pub created_at: u64,
+    /// Fill deadline timestamp
+    pub fill_deadline: u64,
+    /// Sender address on origin chain
+    pub sender: String,
+    /// Recipient address on destination chain
+    pub recipient: String,
+    /// Input token address on origin chain
+    pub token_in: String,
+    /// Output token address on destination chain
+    pub token_out: String,
+    /// Amount of input token
+    pub amount_in: u64,
+    /// Amount of output token
+    pub amount_out: u64,
+    /// Solver address (or zero address for any solver)
+    pub solver: String,
+    /// Address of the caller (for building the transaction)
+    pub caller_address: String,
+}
+
+/// Response with the cancel transaction to sign
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct CancelResponse {
+    /// Order ID being cancelled
+    pub order_id: String,
+    /// EVM transaction to cancel the order (if dest chain is EVM)
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub evm_transaction: Option<EvmTransaction>,
+    /// Serialized SVM transaction (base64) to cancel the order (if dest chain is SVM)
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub svm_transaction: Option<String>,
+    /// OrderBook contract/program address on dest chain
+    pub orderbook_address: String,
+    /// Chain ID where the transaction should be submitted
+    pub chain_id: u32,
+}

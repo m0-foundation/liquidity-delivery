@@ -430,6 +430,7 @@ impl SvmWriter {
                 Some(500_000),
                 Some(20_000_000),
             )
+            .await
             .map_err(|_| SolverError::Component("Error building relay instruction".to_string()))?;
 
             instructions.push(relay_ix);

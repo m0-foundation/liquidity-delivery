@@ -415,9 +415,9 @@ impl BaseTestSuite {
                 rpc_url: chain.anvil.endpoint_url().to_string(),
                 ws_url: chain.anvil.ws_endpoint_url().to_string(),
                 order_book_address: chain.contract_address.to_string(),
-                portal_program_id: None,
-                bridge_adapter: None,
                 lut_address: None,
+                portal_address: "0x50D65829Eae411B655bAA92539E4F8c46D20638C".to_string(),
+                wormhole_adapter: "0x6b2A7bFa5F1C03EbFae779Df6988b8aC14CA4155".to_string(),
             });
         }
 
@@ -428,8 +428,8 @@ impl BaseTestSuite {
                 rpc_url: format!("http://localhost:{}", surfpool_process.port),
                 ws_url: format!("ws://localhost:{}", surfpool_process.port + 1),
                 order_book_address: "MzLoYnJ6sF6eeejs4vV95TNmXqS3W4cAtLGKkjT4ZrK".to_string(),
-                portal_program_id: Some("MzBrgc8yXBj4P16GTkcSyDZkEQZB9qDqf3fh9bByJce".to_string()),
-                bridge_adapter: None,
+                portal_address: "MzBrgc8yXBj4P16GTkcSyDZkEQZB9qDqf3fh9bByJce".to_string(),
+                wormhole_adapter: "mzp1q2j5Hr1QuLC3KFBCAUz5aUckT6qyuZKZ3WJnMmY".to_string(),
                 lut_address: None,
             });
         }

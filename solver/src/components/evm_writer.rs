@@ -24,8 +24,8 @@ const EXECUTOR_QUOTE_API_MAINNET: &str = "https://executor.labsapis.com/v0/quote
 
 /// Wormhole relay consts
 const GAS_INSTRUCTION_DISCRIMINANT: u8 = 1;
-const DEFAULT_GAS_LIMIT: u128 = 500_000;
-const DEFAULT_MSG_VALUE: u128 = 20_000_000;
+const DEFAULT_GAS_LIMIT: u128 = 750_000;
+const DEFAULT_MSG_VALUE: u128 = 25_000_000;
 
 /// Request body for the Wormhole executor quote API
 #[derive(Debug, Serialize)]

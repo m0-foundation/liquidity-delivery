@@ -41,3 +41,24 @@ pub struct OpenOrderInput {
     pub dest_chain_id: u32,
     pub fill_deadline: u64,
 }
+
+/// Input data for building a cancel order transaction
+#[derive(Debug, Clone)]
+pub struct CancelOrderInput {
+    pub order_id: [u8; 32],
+    pub version: u16,
+    pub sender: [u8; 32],
+    pub nonce: u64,
+    pub origin_chain_id: u32,
+    pub dest_chain_id: u32,
+    pub created_at: u64,
+    pub fill_deadline: u64,
+    pub token_in: [u8; 32],
+    pub token_out: [u8; 32],
+    pub amount_in: u128,
+    pub amount_out: u128,
+    pub recipient: [u8; 32],
+    pub solver: [u8; 32],
+    /// Caller address (for SVM transaction building)
+    pub caller_address: String,
+}

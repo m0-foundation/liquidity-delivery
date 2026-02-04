@@ -14,6 +14,7 @@ export interface TrackedOrder {
   nonce: number;
   origin_chain_id: number;
   dest_chain_id: number;
+  created_at: number;
   fill_deadline: number;
   sender: string;
   recipient: string;

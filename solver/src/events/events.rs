@@ -101,14 +101,13 @@ impl SolverEvent {
 pub struct OrderCreatedEvent {
     pub order_id: String,
     pub timestamp: u64,
-    pub created_timestamp: u64,
     pub order: OrderData,
     pub transaction_hash: String,
     pub chain_id: u32,
 }
 
 impl OrderCreatedEvent {
-    pub fn new(order: OrderData, transaction_hash: String, created_timestamp: u64, chain_id: u32) -> Self {
+    pub fn new(order: OrderData, transaction_hash: String, chain_id: u32) -> Self {
         Self {
             order_id: hex::encode(order.compute_order_id()),
             timestamp: SystemTime::now()
@@ -117,7 +116,6 @@ impl OrderCreatedEvent {
                 .as_secs(),
             order,
             transaction_hash,
-            created_timestamp,
             chain_id,
         }
     }
@@ -153,7 +151,11 @@ pub struct OrderRejectEvent {
 
 impl OrderRejectEvent {
     pub fn new(order_id: String, reason: String, chain_id: u32) -> Self {
-        Self { order_id, reason, chain_id }
+        Self {
+            order_id,
+            reason,
+            chain_id,
+        }
     }
 }
 

@@ -2,10 +2,21 @@
 import { ref, computed, watch, onMounted, onUnmounted } from 'vue'
 import { useOrders, type TrackedOrder } from '../composables/useOrders'
 import { useAssets } from '../composables/useAssets'
+import { useCancel } from '../composables/useCancel'
+import { getSolanaRpc } from '../config/network'
+
+import type { Wallet } from 'ethers'
+import type { Keypair } from '@solana/web3.js'
+import type Solflare from '@solflare-wallet/sdk'
 
 const props = defineProps<{
   orderId: string
   network: 'local' | 'devnet' | 'mainnet'
+  evmAddress: string | null
+  svmAddress: string | null
+  evmSigner: Wallet | null
+  svmKeypair: Keypair | null
+  solflareWallet: Solflare | null
 }>()
 
 const emit = defineEmits<{
@@ -13,8 +24,10 @@ const emit = defineEmits<{
 }>()
 
 const networkRef = computed(() => props.network)
+const isLocal = computed(() => props.network === 'local')
 const { assets } = useAssets(networkRef)
 const { orders, fetchOrders, getOrder } = useOrders(networkRef)
+const { cancelOrder, loading: cancelLoading, error: cancelError, getChainType } = useCancel()
 
 // Selected order from the list
 const selectedOrder = ref<TrackedOrder | undefined>(undefined)
@@ -28,6 +41,10 @@ const isPolling = ref(false)
 
 // Copy feedback state
 const copiedField = ref<string | null>(null)
+
+// Cancel state
+const cancelSuccess = ref(false)
+const cancelTxHash = ref<string | null>(null)
 
 // Check if order is fully filled
 const isFullyFilled = computed(() => {
@@ -153,6 +170,61 @@ async function copyToClipboard(text: string, fieldName: string) {
     }, 2000)
   } catch (err) {
     console.error('Failed to copy:', err)
+  }
+}
+
+// Check if the order can be cancelled (status is Created or PartiallyFilled)
+const canCancel = computed(() => {
+  if (!selectedOrder.value) return false
+  const status = selectedOrder.value.status.toLowerCase()
+  return status === 'created' || status === 'partiallyfilled'
+})
+
+// Get the caller address based on destination chain type
+const callerAddress = computed(() => {
+  if (!selectedOrder.value) return null
+  const chainType = getChainType(selectedOrder.value.dest_chain_id)
+  return chainType === 'evm' ? props.evmAddress : props.svmAddress
+})
+
+// Check if wallet is connected for the destination chain
+const isWalletConnected = computed(() => {
+  return callerAddress.value !== null
+})
+
+// Get required wallet type for cancellation (based on destination chain)
+const requiredWalletType = computed(() => {
+  if (!selectedOrder.value) return null
+  return getChainType(selectedOrder.value.dest_chain_id)
+})
+
+async function handleCancelOrder() {
+  if (!selectedOrder.value || !callerAddress.value) return
+
+  cancelSuccess.value = false
+  cancelTxHash.value = null
+
+  try {
+    const result = await cancelOrder(
+      selectedOrder.value,
+      props.network,
+      callerAddress.value,
+      {
+        localEvmSigner: isLocal.value ? props.evmSigner : null,
+        localSvmKeypair: isLocal.value ? props.svmKeypair : null,
+        solflareWallet: !isLocal.value ? props.solflareWallet : null,
+        svmRpcUrl: getSolanaRpc(props.network),
+      }
+    )
+
+    cancelSuccess.value = true
+    cancelTxHash.value = result.txHash
+
+    // Refresh order data after successful cancellation
+    await refreshOrder()
+  } catch (err) {
+    console.error('Failed to cancel order:', err)
+    // Error is already set in the composable
   }
 }
 
@@ -679,6 +751,83 @@ onUnmounted(() => {
                 </div>
               </div>
             </div>
+          </div>
+
+          <!-- Cancel Order Card -->
+          <div v-if="canCancel" class="glass-card rounded-3xl p-6">
+            <div class="flex items-center gap-2 mb-4">
+              <svg class="w-5 h-5 text-surface-400" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                <path d="M6 18L18 6M6 6l12 12" stroke-linecap="round" stroke-linejoin="round"/>
+              </svg>
+              <span class="text-sm font-medium text-surface-300">Cancel Order</span>
+            </div>
+
+            <!-- Success Message -->
+            <div v-if="cancelSuccess" class="mb-4 p-3 bg-emerald-500/10 border border-emerald-500/20 rounded-xl">
+              <div class="flex items-center gap-2 text-emerald-400">
+                <svg class="w-5 h-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                  <path d="M5 13l4 4L19 7" stroke-linecap="round" stroke-linejoin="round"/>
+                </svg>
+                <span class="text-sm font-medium">Cancel request submitted</span>
+              </div>
+              <div
+                v-if="cancelTxHash"
+                class="mt-2 font-mono text-xs text-emerald-400/80 truncate cursor-pointer hover:text-emerald-300 transition-colors"
+                @click="copyToClipboard(cancelTxHash!, 'cancelTx')"
+              >
+                {{ truncateAddress(cancelTxHash, 10, 8) }}
+              </div>
+            </div>
+
+            <!-- Error Message -->
+            <div v-if="cancelError" class="mb-4 p-3 bg-rose-500/10 border border-rose-500/20 rounded-xl">
+              <div class="flex items-start gap-2 text-rose-400">
+                <svg class="w-5 h-5 flex-shrink-0 mt-0.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                  <path d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" stroke-linecap="round" stroke-linejoin="round"/>
+                </svg>
+                <span class="text-sm">{{ cancelError }}</span>
+              </div>
+            </div>
+
+            <!-- Wallet Not Connected Warning -->
+            <div v-if="!isWalletConnected" class="mb-4 p-3 bg-amber-500/10 border border-amber-500/20 rounded-xl">
+              <div class="flex items-center gap-2 text-amber-400">
+                <svg class="w-5 h-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                  <path d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" stroke-linecap="round" stroke-linejoin="round"/>
+                </svg>
+                <span class="text-sm">
+                  Connect {{ requiredWalletType === 'evm' ? 'EVM' : 'Solana' }} wallet to cancel
+                  <span class="text-amber-400/70">(order destination: {{ getChainName(selectedOrder?.dest_chain_id || 0) }})</span>
+                </span>
+              </div>
+            </div>
+
+            <p class="text-xs text-surface-500 mb-4">
+              Cancelling will return any unfilled tokens to the order sender.
+              {{ selectedOrder?.origin_chain_id !== selectedOrder?.dest_chain_id ? 'A cross-chain message fee will be charged.' : '' }}
+            </p>
+
+            <button
+              @click="handleCancelOrder"
+              :disabled="cancelLoading || !isWalletConnected || cancelSuccess"
+              class="w-full py-3 px-4 rounded-xl font-medium text-sm transition-all duration-200 flex items-center justify-center gap-2"
+              :class="[
+                cancelLoading || !isWalletConnected || cancelSuccess
+                  ? 'bg-surface-700/50 text-surface-500 cursor-not-allowed'
+                  : 'bg-rose-500/10 text-rose-400 border border-rose-500/20 hover:bg-rose-500/20 hover:border-rose-500/30'
+              ]"
+            >
+              <svg v-if="cancelLoading" class="w-4 h-4 animate-spin" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                <path d="M12 2v4m0 12v4M4.93 4.93l2.83 2.83m8.48 8.48l2.83 2.83M2 12h4m12 0h4M4.93 19.07l2.83-2.83m8.48-8.48l2.83-2.83" stroke-linecap="round"/>
+              </svg>
+              <svg v-else-if="cancelSuccess" class="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                <path d="M5 13l4 4L19 7" stroke-linecap="round" stroke-linejoin="round"/>
+              </svg>
+              <svg v-else class="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                <path d="M6 18L18 6M6 6l12 12" stroke-linecap="round" stroke-linejoin="round"/>
+              </svg>
+              {{ cancelLoading ? 'Cancelling...' : cancelSuccess ? 'Cancelled' : 'Cancel Order' }}
+            </button>
           </div>
         </div>
       </div>

@@ -220,7 +220,8 @@ function debouncedRequestQuote() {
 
 // Watch for input changes and trigger debounced quote
 // Note: assets and network are included so quotes are fetched once token addresses load from API (on network change)
-watch([fromChain, toChain, fromToken, toToken, amount, assets, () => props.network], () => {
+// Wallet connection state is included so quotes are refetched when wallets connect (addresses affect quote params)
+watch([fromChain, toChain, fromToken, toToken, amount, assets, () => props.network, () => props.connected, () => props.evmAddress, () => props.svmAddress], () => {
   debouncedRequestQuote()
 })
 

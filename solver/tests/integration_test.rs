@@ -334,8 +334,8 @@ impl AsyncTestContext for TestSuite {
                 rpc_url: chain.anvil.endpoint_url().to_string(),
                 ws_url: chain.anvil.ws_endpoint_url().to_string(),
                 order_book_address: chain.contract_address.to_string(),
-                portal_program_id: None,
-                bridge_adapter: None,
+                portal_address: "MzBrgc8yXBj4P16GTkcSyDZkEQZB9qDqf3fh9bByJce".to_string(),
+                wormhole_adapter: "mzp1q2j5Hr1QuLC3KFBCAUz5aUckT6qyuZKZ3WJnMmY".to_string(),
                 lut_address: None,
             });
         }

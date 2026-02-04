@@ -6,8 +6,8 @@ use async_trait::async_trait;
 use futures_util::StreamExt;
 use m0_liquidity_sdk::types::ChainRuntime;
 use order_book::{
-    FillReported, NativeOrder, Order, OrderCancelled, OrderCompleted, OrderData, OrderFilled,
-    OrderOpened, RefundClaimed,
+    CancelReported, FillReported, NativeOrder, Order, OrderCancelled, OrderCompleted, OrderData,
+    OrderFilled, OrderOpened, RefundClaimed,
 };
 use slog::{error, info, warn, Logger};
 use solana_client::rpc_config::{
@@ -22,6 +22,7 @@ use std::sync::Arc;
 use tokio::sync::RwLock;
 use tokio::task::JoinHandle;
 
+use crate::components::ComponentParams;
 use crate::config::ChainConfig;
 use crate::error::Result;
 use crate::events::{
@@ -31,7 +32,6 @@ use crate::events::{
 use crate::providers::ProviderManager;
 use crate::stores::OrderStore;
 use crate::utils::chain_runtime;
-use crate::{components::ComponentParams, utils::unix_timestamp_secs};
 
 /// Enum representing all events emitted by the order_book program
 enum OrderBookEvent {
@@ -41,6 +41,7 @@ enum OrderBookEvent {
     OrderCancelled(OrderCancelled),
     FillReported(FillReported),
     RefundClaimed(RefundClaimed),
+    CancelReported(CancelReported),
 }
 
 pub struct SvmEventListener {
@@ -212,6 +213,18 @@ impl SvmEventListener {
                                 );
                             }
                         }
+                    } else if event_discriminator == CancelReported::DISCRIMINATOR {
+                        match CancelReported::deserialize(&mut data_slice) {
+                            Ok(event) => events.push(OrderBookEvent::CancelReported(event)),
+                            Err(e) => {
+                                error!(
+                                    logger,
+                                    "Failed to deserialize CancelReported event";
+                                    "signature" => signature,
+                                    "error" => %e,
+                                );
+                            }
+                        }
                     }
                 }
             }
@@ -364,9 +377,6 @@ impl SvmEventListener {
                             SolverEvent::OrderCreated(OrderCreatedEvent::new(
                                 OrderData::new_from_native_order(order.data, chain_id),
                                 signature_str.clone(),
-                                tx.block_time
-                                    .map(|t| t as u64)
-                                    .unwrap_or_else(unix_timestamp_secs),
                                 chain_id,
                             ))
                         }
@@ -405,6 +415,13 @@ impl SvmEventListener {
                                 hex::encode(e.order_id),
                                 e.sender.to_string(),
                                 e.amount as u128,
+                                signature_str.clone(),
+                                chain_id,
+                            ))
+                        }
+                        OrderBookEvent::CancelReported(e) => {
+                            SolverEvent::OrderCancelled(OrderCancelledEvent::new(
+                                hex::encode(e.order_id),
                                 signature_str.clone(),
                                 chain_id,
                             ))

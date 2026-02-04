@@ -9,12 +9,19 @@ use crate::components::ComponentParams;
 use crate::error::Result;
 use crate::events::{EventHandler, SolverEvent};
 
-const ORDER_WARNING_THRESHOLD_SECONDS: u64 = 7200;
+const ORDER_WARNING_THRESHOLD_SECONDS: u64 = 30; // 5 minutes
+const WARNING_LOG_INTERVAL_SECONDS: u64 = 600; // 10 minutes
 
 pub struct OrderTimer {
-    active_orders: Arc<RwLock<HashMap<String, u64>>>,
+    active_orders: Arc<RwLock<HashMap<String, OrderTracker>>>,
     shutdown: Arc<RwLock<Option<oneshot::Sender<()>>>>,
     logger: Logger,
+}
+
+#[derive(Clone)]
+struct OrderTracker {
+    start_time: u64,
+    last_warning_time: Option<u64>,
 }
 
 impl OrderTimer {
@@ -44,17 +51,25 @@ impl OrderTimer {
                             .unwrap()
                             .as_secs();
 
-                        let orders = active_orders.read().await;
-                        for (order_id, start_time) in orders.iter() {
-                            let age = now - start_time;
+                        let mut orders = active_orders.write().await;
+                        for (order_id, tracker) in orders.iter_mut() {
+                            let age = now - tracker.start_time;
                             if age > ORDER_WARNING_THRESHOLD_SECONDS {
-                                warn!(
-                                    logger,
-                                    "Order has been active longer than warning threshold";
-                                    "order_id" => order_id,
-                                    "age" => age,
-                                    "threshold" => ORDER_WARNING_THRESHOLD_SECONDS,
-                                );
+                                let should_log = match tracker.last_warning_time {
+                                    None => true,
+                                    Some(last) => now - last >= WARNING_LOG_INTERVAL_SECONDS,
+                                };
+
+                                if should_log {
+                                    warn!(
+                                        logger,
+                                        "Order has been active longer than warning threshold";
+                                        "order_id" => order_id,
+                                        "age" => age,
+                                        "threshold" => ORDER_WARNING_THRESHOLD_SECONDS,
+                                    );
+                                    tracker.last_warning_time = Some(now);
+                                }
                             }
                         }
                     }
@@ -86,17 +101,20 @@ impl EventHandler for OrderTimer {
     async fn handle_event(&self, event: SolverEvent) -> Result<Vec<SolverEvent>> {
         match event {
             SolverEvent::OrderCreated(e) => {
-                self.active_orders
-                    .write()
-                    .await
-                    .insert(e.order_id.clone(), e.timestamp);
+                self.active_orders.write().await.insert(
+                    e.order_id.clone(),
+                    OrderTracker {
+                        start_time: e.timestamp,
+                        last_warning_time: None,
+                    },
+                );
             }
             SolverEvent::OrderCompleted(e) => {
-                let start = self.active_orders.read().await.get(&e.order_id).cloned();
+                let tracker = self.active_orders.read().await.get(&e.order_id).cloned();
 
-                match start {
-                    Some(start_time) => {
-                        let duration = e.timestamp - start_time;
+                match tracker {
+                    Some(tracker) => {
+                        let duration = e.timestamp - tracker.start_time;
                         info!(
                             self.logger,
                             "Order completion time";

@@ -94,6 +94,10 @@ function getFillPercentage(order: TrackedOrder): number {
 }
 
 function getStatusInfo(order: TrackedOrder): { label: string; color: string; bg: string } {
+  if (order.status === 'Cancelled' || order.status === 'Rejected') {
+    return { label: 'Closed', color: '#ED2939', bg: 'rgba(237, 41, 57, 0.1)' }
+  }
+
   const pct = getFillPercentage(order)
   if (pct >= 100) return { label: 'Filled', color: '#22c55e', bg: 'rgba(34, 197, 94, 0.1)' }
   if (pct > 0) return { label: 'Partial', color: '#f59e0b', bg: 'rgba(245, 158, 11, 0.1)' }

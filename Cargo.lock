@@ -4221,9 +4221,9 @@ dependencies = [
 
 [[package]]
 name = "m0-portal-common"
-version = "0.1.2"
+version = "0.1.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "f07f55ba3f8375daa4c8cc60c21fd863da2f0cba91055978630ec3c0fd45d6dd"
+checksum = "04d47129a16837439799ae33567e755fb98e1da0452bc41cc1f8e7804f009a8f"
 dependencies = [
  "anchor-client",
  "anchor-lang",
@@ -5195,6 +5195,7 @@ dependencies = [
  "chrono",
  "futures-util",
  "hex",
+ "m0-portal-common",
  "order_book",
  "prost",
  "serde",

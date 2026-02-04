@@ -243,6 +243,11 @@ function onOrderCreated(orderId: string) {
           <OrderDetail
             :order-id="selectedOrderId"
             :network="network"
+            :evm-address="evmAddress"
+            :svm-address="svmAddress"
+            :evm-signer="evmSigner"
+            :svm-keypair="svmKeypair"
+            :solflare-wallet="solflareWallet"
             @back="backToOrders"
           />
         </div>

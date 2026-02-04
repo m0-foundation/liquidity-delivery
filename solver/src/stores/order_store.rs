@@ -90,7 +90,7 @@ impl EventProcessor for OrderStore {
                     state: OrderState::Created,
                     data: e.order.clone(),
                     filled_amount: 0,
-                    created_at: e.created_timestamp,
+                    created_at: e.order.created_at,
                     transaction_history: vec![TransactionRecord {
                         transaction_hash: e.transaction_hash.clone(),
                         event: "OrderCreated".to_string(),
@@ -138,7 +138,7 @@ impl EventProcessor for OrderStore {
             }
             SolverEvent::OrderRefundClaimed(e) => {
                 if let Some(order) = orders.get_mut(&e.order_id) {
-                    order.state = OrderState::Rejected;
+                    order.state = OrderState::Cancelled;
                     order.transaction_history.push(TransactionRecord {
                         transaction_hash: e.transaction_hash.clone(),
                         event: "OrderRefundClaimed".to_string(),

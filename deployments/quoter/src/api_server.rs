@@ -11,10 +11,10 @@ use tower_http::cors::CorsLayer;
 
 use crate::config::{ChainConfig, ChainType};
 use crate::grpc_server::QuoteGrpcService;
-use crate::models::QuoteRequest;
+use crate::models::{CancelRequest, CancelResponse, EvmTransaction, QuoteRequest};
 use crate::transaction_builder::{
-    EvmTransactionBuilder, EvmTransactionResult, OpenOrderInput, SvmTransactionBuilder,
-    TransactionBuilderError, TransactionResult,
+    CancelOrderInput, EvmTransactionBuilder, EvmTransactionResult, OpenOrderInput,
+    SvmTransactionBuilder, TransactionBuilderError, TransactionResult,
 };
 
 #[derive(Clone)]
@@ -28,6 +28,7 @@ pub fn create_router(state: ApiState) -> Router {
     Router::new()
         .route("/health", get(health_check))
         .route("/quote", post(handle_quote_request))
+        .route("/cancel", post(handle_cancel_request))
         .layer(CorsLayer::permissive())
         .with_state(Arc::new(state))
 }
@@ -186,4 +187,192 @@ fn parse_address_to_bytes32(address: &str) -> Result<[u8; 32], String> {
     }
 
     Err(format!("Cannot parse address: {}", address))
+}
+
+/// Parse a hex string (with or without 0x prefix) as [u8; 32]
+fn parse_order_id(order_id: &str) -> Result<[u8; 32], String> {
+    let hex_str = order_id.strip_prefix("0x").unwrap_or(order_id);
+    if hex_str.len() != 64 {
+        return Err(format!("Invalid order ID length: {}", hex_str.len()));
+    }
+    let bytes: [u8; 32] = hex::decode(hex_str)
+        .map_err(|e| e.to_string())?
+        .try_into()
+        .map_err(|_| "Invalid length")?;
+    Ok(bytes)
+}
+
+async fn handle_cancel_request(
+    State(state): State<Arc<ApiState>>,
+    Json(request): Json<CancelRequest>,
+) -> impl IntoResponse {
+    // Parse order_id
+    let order_id = match parse_order_id(&request.order_id) {
+        Ok(id) => id,
+        Err(e) => {
+            return (
+                StatusCode::BAD_REQUEST,
+                Json(serde_json::json!({ "error": format!("Invalid order ID: {}", e) })),
+            )
+                .into_response();
+        }
+    };
+
+    // Parse addresses to bytes32
+    let sender = match parse_address_to_bytes32(&request.sender) {
+        Ok(bytes) => bytes,
+        Err(e) => {
+            return (
+                StatusCode::BAD_REQUEST,
+                Json(serde_json::json!({ "error": format!("Invalid sender address: {}", e) })),
+            )
+                .into_response();
+        }
+    };
+
+    let recipient = match parse_address_to_bytes32(&request.recipient) {
+        Ok(bytes) => bytes,
+        Err(e) => {
+            return (
+                StatusCode::BAD_REQUEST,
+                Json(serde_json::json!({ "error": format!("Invalid recipient address: {}", e) })),
+            )
+                .into_response();
+        }
+    };
+
+    let token_in = match parse_address_to_bytes32(&request.token_in) {
+        Ok(bytes) => bytes,
+        Err(e) => {
+            return (
+                StatusCode::BAD_REQUEST,
+                Json(serde_json::json!({ "error": format!("Invalid token_in address: {}", e) })),
+            )
+                .into_response();
+        }
+    };
+
+    let token_out = match parse_address_to_bytes32(&request.token_out) {
+        Ok(bytes) => bytes,
+        Err(e) => {
+            return (
+                StatusCode::BAD_REQUEST,
+                Json(serde_json::json!({ "error": format!("Invalid token_out address: {}", e) })),
+            )
+                .into_response();
+        }
+    };
+
+    let solver = match parse_address_to_bytes32(&request.solver) {
+        Ok(bytes) => bytes,
+        Err(e) => {
+            return (
+                StatusCode::BAD_REQUEST,
+                Json(serde_json::json!({ "error": format!("Invalid solver address: {}", e) })),
+            )
+                .into_response();
+        }
+    };
+
+    // Find the destination chain config (cancel tx goes to destination chain)
+    let dest_chain = state
+        .chains
+        .iter()
+        .find(|c| c.chain_id == request.dest_chain_id);
+
+    let chain = match dest_chain {
+        Some(c) => c,
+        None => {
+            return (
+                StatusCode::BAD_REQUEST,
+                Json(serde_json::json!({ "error": format!("Unsupported destination chain: {}", request.dest_chain_id) })),
+            )
+                .into_response();
+        }
+    };
+
+    let cancel_input = CancelOrderInput {
+        order_id,
+        version: request.version,
+        sender,
+        nonce: request.nonce,
+        origin_chain_id: request.origin_chain_id,
+        dest_chain_id: request.dest_chain_id,
+        created_at: request.created_at,
+        fill_deadline: request.fill_deadline,
+        token_in,
+        token_out,
+        amount_in: request.amount_in as u128,
+        amount_out: request.amount_out as u128,
+        recipient,
+        solver,
+        caller_address: request.caller_address.clone(),
+    };
+
+    match chain.chain_type {
+        ChainType::Evm => match build_evm_cancel_transaction(chain, &cancel_input).await {
+            Ok(tx) => {
+                let response = CancelResponse {
+                    order_id: request.order_id,
+                    evm_transaction: Some(tx),
+                    svm_transaction: None,
+                    orderbook_address: chain.order_book_address.clone(),
+                    chain_id: chain.chain_id,
+                };
+                (StatusCode::OK, Json(response)).into_response()
+            }
+            Err(e) => {
+                warn!(state.logger, "Failed to build EVM cancel transaction"; "error" => %e);
+                (
+                    StatusCode::INTERNAL_SERVER_ERROR,
+                    Json(serde_json::json!({ "error": format!("Failed to build transaction: {}", e) })),
+                )
+                    .into_response()
+            }
+        },
+        ChainType::Svm => match build_svm_cancel_transaction(chain, &cancel_input).await {
+            Ok(result) => {
+                let response = CancelResponse {
+                    order_id: request.order_id,
+                    evm_transaction: None,
+                    svm_transaction: Some(result.transaction),
+                    orderbook_address: chain.order_book_address.clone(),
+                    chain_id: chain.chain_id,
+                };
+                (StatusCode::OK, Json(response)).into_response()
+            }
+            Err(e) => {
+                warn!(state.logger, "Failed to build SVM cancel transaction"; "error" => %e);
+                (
+                    StatusCode::INTERNAL_SERVER_ERROR,
+                    Json(serde_json::json!({ "error": format!("Failed to build transaction: {}", e) })),
+                )
+                    .into_response()
+            }
+        },
+    }
+}
+
+async fn build_evm_cancel_transaction(
+    chain: &ChainConfig,
+    input: &CancelOrderInput,
+) -> Result<EvmTransaction, TransactionBuilderError> {
+    let builder = EvmTransactionBuilder::new(
+        chain.rpc_url.clone(),
+        chain.order_book_address.clone(),
+        chain.chain_id,
+    )?;
+    builder.build_cancel_order_calldata(input).await
+}
+
+async fn build_svm_cancel_transaction(
+    chain: &ChainConfig,
+    input: &CancelOrderInput,
+) -> Result<TransactionResult, TransactionBuilderError> {
+    let builder = SvmTransactionBuilder::new(
+        chain.rpc_url.clone(),
+        Some(chain.order_book_address.clone()),
+        chain.chain_id,
+    )?;
+    builder.build_cancel_order_transaction(input).await
 }
