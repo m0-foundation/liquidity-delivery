@@ -11,6 +11,6 @@ RUN curl -fsSL "https://github.com/streamingfast/substreams-sink-sql/releases/do
 
 ENV DSN=""
 ENV SUBSTREAMS_API_TOKEN=""
-ENV PACKAGE="svm-orderbook@v0.1.3"
+ENV PACKAGE=""
 
 ENTRYPOINT ["/bin/sh", "-c", "substreams-sink-sql from-proto \"$DSN\" \"$PACKAGE\""]
