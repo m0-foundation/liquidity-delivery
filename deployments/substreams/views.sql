@@ -120,47 +120,46 @@ CREATE OR REPLACE VIEW public.orders AS
   SELECT
     o.order_id,
     CASE
-      WHEN c.order_id IS NOT NULL THEN 'completed'
-      WHEN r.order_id IS NOT NULL THEN 'refunded'
       WHEN x.order_id IS NOT NULL THEN 'cancelled'
-      WHEN f.order_id IS NOT NULL THEN 'filled'
-      ELSE 'open'
+      WHEN f.total_amount_out_filled >= o.amount_out THEN 'filled'
+      WHEN f.total_amount_out_filled > 0 THEN 'partially_filled'
+      ELSE 'unfilled'
     END AS status,
     o.chain_id AS origin_chain_id,
     o.dest_chain_id,
     o.sender,
     o.token_in,
-    o.amount_in,
+    o.amount_in / 1000000 as amount_in,
     o.token_out,
-    o.amount_out,
+    o.amount_out / 1000000 as amount_out,
     o.ts AS opened_at,
     o.transaction_hash AS open_tx,
     f.fill_count,
-    f.total_amount_out_filled,
-    f.total_amount_in_to_release,
+    COALESCE(f.total_amount_out_filled, 0) / 1000000 as total_amount_out_filled,
     f.first_filled_at,
     f.last_filled_at,
-    c.ts AS completed_at,
-    c.transaction_hash AS complete_tx,
     x.ts AS cancelled_at,
-    x.transaction_hash AS cancel_tx,
-    r.amount AS refund_amount,
-    r.ts AS refunded_at
-  FROM public.events_order_opened o
+    x.transaction_hash AS cancel_tx
+  FROM (
+    SELECT DISTINCT ON (order_id) *
+    FROM public.events_order_opened
+    ORDER BY order_id, ts ASC
+  ) o
   LEFT JOIN (
     SELECT
       order_id,
       COUNT(*) AS fill_count,
       SUM(amount_out_filled) AS total_amount_out_filled,
-      SUM(amount_in_to_release) AS total_amount_in_to_release,
       MIN(ts) AS first_filled_at,
       MAX(ts) AS last_filled_at
     FROM public.events_order_filled
     GROUP BY order_id
   ) f ON f.order_id = o.order_id
-  LEFT JOIN public.events_order_completed c ON c.order_id = o.order_id
-  LEFT JOIN public.events_order_cancelled x ON x.order_id = o.order_id
-  LEFT JOIN public.events_refund_claimed r ON r.order_id = o.order_id
+  LEFT JOIN (
+    SELECT DISTINCT ON (order_id) order_id, ts, transaction_hash
+    FROM public.events_order_cancelled
+    ORDER BY order_id, ts ASC
+  ) x ON x.order_id = o.order_id
   ORDER BY o.ts DESC;
 
 -- Solver leaderboard: fill counts and volumes per solver
