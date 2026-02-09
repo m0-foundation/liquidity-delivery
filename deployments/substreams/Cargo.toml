@@ -21,7 +21,7 @@ svm = [
     "dep:anchor-lang",
     "dep:base64",
 ]
-default = ["evm"]
+default = []
 
 [dependencies]
 prost = "0.13"

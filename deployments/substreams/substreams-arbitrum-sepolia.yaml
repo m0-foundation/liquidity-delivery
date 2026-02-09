@@ -1,6 +1,6 @@
 specVersion: v0.1.0
 package:
-  name: sepolia-orderbook
+  name: arbitrum-sepolia-orderbook
   version: v0.1.1
   url: https://github.com/m0-foundation/liquidity-delivery
   description: Substreams module for the M0 OrderBook program on Sepolia
@@ -27,7 +27,7 @@ binaries:
 modules:
   - name: map_evm_events
     kind: map
-    initialBlock: 10108380
+    initialBlock: 236116955
     blockFilter:
       module: ethcommon:index_events
       query:
@@ -39,10 +39,10 @@ modules:
       type: proto:substreams.v1.program.Data
 
 params:
-  map_evm_events: "11155111"
+  map_evm_events: "421614"
 
 sink:
   module: map_evm_events
   type: sf.substreams.sink.sql.v1.Service
 
-network: sepolia
+network: arbitrum-sepolia

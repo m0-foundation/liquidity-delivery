@@ -1,7 +1,7 @@
 specVersion: v0.1.0
 package:
   name: solana-devnet-orderbook
-  version: v0.1.0
+  version: v0.1.1
   url: https://github.com/m0-foundation/liquidity-delivery
   description: Substreams module for the M0 OrderBook program on Solana
 
