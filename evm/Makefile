@@ -172,7 +172,7 @@ ifndef NEW_ADMIN
 	@echo "Error: NEW_ADMIN is required. Usage: make transfer-admin-roles ENV=prod CHAIN=base NEW_ADMIN=0x..."
 	@exit 1
 endif
-	@./ops/transfer-admin-roles.sh --env $(ENV) --chain $(CHAIN) --new-admin $(NEW_ADMIN)
+	@DRY_RUN=$(DRY_RUN) ./ops/transfer-admin-roles.sh --env $(ENV) --chain $(CHAIN) --new-admin $(NEW_ADMIN)
 
 .PHONY: transfer-pauser-role
 
@@ -189,7 +189,7 @@ ifndef NEW_PAUSER
 	@echo "Error: NEW_PAUSER is required. Usage: make transfer-pauser-role ENV=prod CHAIN=base NEW_PAUSER=0x..."
 	@exit 1
 endif
-	@./ops/transfer-pauser-role.sh --env $(ENV) --chain $(CHAIN) --new-pauser $(NEW_PAUSER)
+	@DRY_RUN=$(DRY_RUN) ./ops/transfer-pauser-role.sh --env $(ENV) --chain $(CHAIN) --new-pauser $(NEW_PAUSER)
 
 ## Status Commands
 
@@ -268,7 +268,8 @@ endif
 		$(if $(ORIGIN_RECIPIENT),--origin-recipient $(ORIGIN_RECIPIENT)) \
 		$(if $(BRIDGE_ADAPTER),--bridge-adapter $(BRIDGE_ADAPTER)) \
 		$(if $(BRIDGE_ADAPTER_ARGS),--bridge-adapter-args $(BRIDGE_ADAPTER_ARGS)) \
-		$(if $(WORMHOLE),--wormhole)
+		$(if $(WORMHOLE),--wormhole) \
+		$(if $(GAS_LIMIT),--gas-limit $(GAS_LIMIT))
 
 cancel-order: ## Cancel a test order (ENV=dev CHAIN=arbitrum_sepolia ORDER_ID=0x... ORIGIN_CHAIN=sepolia)
 ifndef ENV
@@ -291,7 +292,8 @@ endif
 		--order-id $(ORDER_ID) --origin-chain $(ORIGIN_CHAIN) \
 		$(if $(BRIDGE_ADAPTER),--bridge-adapter $(BRIDGE_ADAPTER)) \
 		$(if $(BRIDGE_ADAPTER_ARGS),--bridge-adapter-args $(BRIDGE_ADAPTER_ARGS)) \
-		$(if $(WORMHOLE),--wormhole)
+		$(if $(WORMHOLE),--wormhole) \
+		$(if $(GAS_LIMIT),--gas-limit $(GAS_LIMIT))
 
 ## Help
 
@@ -323,8 +325,12 @@ help: ## Show this help
 	@echo "Admin:"
 	@echo "  make transfer-admin-roles ENV=<dev|prod> CHAIN=<alias> \\  Transfer admin roles to new admin"
 	@echo "       NEW_ADMIN=0x..."
+	@echo "  make transfer-admin-roles ENV=<dev|prod> CHAIN=<alias> \\  Dry run admin transfer"
+	@echo "       NEW_ADMIN=0x... DRY_RUN=true"
 	@echo "  make transfer-pauser-role ENV=<dev|prod> CHAIN=<alias> \\  Transfer pauser role to new address"
 	@echo "       NEW_PAUSER=0x..."
+	@echo "  make transfer-pauser-role ENV=<dev|prod> CHAIN=<alias> \\  Dry run pauser transfer"
+	@echo "       NEW_PAUSER=0x... DRY_RUN=true"
 	@echo ""
 	@echo "Testing:"
 	@echo "  make open-order ENV=<dev|prod> CHAIN=<alias> \\    Create a test order"
@@ -362,3 +368,5 @@ help: ## Show this help
 	@echo "Dry run examples:"
 	@echo "  make deploy ENV=dev CHAIN=sepolia DRY_RUN=true"
 	@echo "  make configure-routes ENV=dev DRY_RUN=true"
+	@echo "  make transfer-admin-roles ENV=prod CHAIN=base NEW_ADMIN=0x... DRY_RUN=true"
+	@echo "  make transfer-pauser-role ENV=prod CHAIN=base NEW_PAUSER=0x... DRY_RUN=true"
