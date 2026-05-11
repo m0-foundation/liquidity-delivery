@@ -64,8 +64,8 @@ contract OrderBook is
     bytes32 public constant CANCEL_ORDER_TYPEHASH = 0x6919f4958bcd1b5b4e13b800c6d41c4792cfc2a12d0bd9ad19da6e0bfe8ac04f;
 
     /// @notice the portal contract used for cross-chain communication
-    /// @dev sends crosschain messages to report fills on this chain to other chains
-    ///      receive crosschain messages to report fills on other chains to this chain
+    /// @dev sends crosschain messages to report fills and cancels on this chain to other chains
+    ///      receives crosschain messages reporting fills and cancels on other chains to this chain
     address public immutable portal;
 
     /* ========== Construct and Initialize ========== */
@@ -630,21 +630,14 @@ contract OrderBook is
         if (report_.tokenIn != order.tokenIn.toBytes32()) revert InvalidReport();
         if (sourceChainId_ != order.destChainId) revert InvalidReportSource();
 
-        // Calculate the expected fill amounts based on the reported amount out filled
-        // and make sure they match the reported amounts
-        (, uint128 expectedAmountInToRelease_, uint128 expectedAmountOutFilled_) = _calculateFill(
+        // Calculate the fill to determine if it completely fills the order
+        (bool fullFill, , ) = _calculateFill(
             order.amountIn,
             order.amountOut,
             $.filledAmounts[report_.orderId].amountInReleased,
             $.filledAmounts[report_.orderId].amountOutFilled,
             report_.amountOutFilled
         );
-
-        // Check the filled amount out matches the expected amount
-        if (expectedAmountOutFilled_ != report_.amountOutFilled) revert InvalidReport();
-        // Check the amount in to release matches the expected amount
-        // This checks that the ratio of token in to token out is correct
-        if (expectedAmountInToRelease_ != report_.amountInToRelease) revert InvalidReport();
 
         // Update the fill amounts for the order
         IOrderBook.FilledAmounts storage filledAmounts = $.filledAmounts[report_.orderId];
@@ -661,7 +654,7 @@ contract OrderBook is
         ) revert InvalidReport();
 
         // Mark order as completed if fully filled
-        if (filledAmounts.amountOutFilled == order.amountOut) {
+        if (fullFill) {
             order.status = OrderStatus.Completed;
             emit OrderCompleted(report_.orderId);
         }
@@ -766,6 +759,29 @@ contract OrderBook is
     function getOrder(bytes32 orderId_) external view override returns (Order memory) {
         OrderBookStorageStruct storage $ = _getOrderBookStorageLocation();
         return $.orders[orderId_];
+    }
+
+    /// @inheritdoc IOrderBook
+    function getOrderData(bytes32 orderId_) external view override returns (OrderData memory) {
+        OrderBookStorageStruct storage $ = _getOrderBookStorageLocation();
+        Order storage order_ = $.orders[orderId_];
+
+        return
+            OrderData({
+                version: order_.version,
+                sender: order_.sender.toBytes32(),
+                nonce: order_.nonce,
+                originChainId: uint32(block.chainid),
+                destChainId: order_.destChainId,
+                createdAt: uint64(order_.createdAt),
+                fillDeadline: uint64(order_.fillDeadline),
+                tokenIn: order_.tokenIn.toBytes32(),
+                tokenOut: order_.tokenOut,
+                amountIn: order_.amountIn,
+                amountOut: order_.amountOut,
+                recipient: order_.recipient,
+                solver: order_.solver
+            });
     }
 
     /// @inheritdoc IOrderBook
