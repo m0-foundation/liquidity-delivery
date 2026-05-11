@@ -78,6 +78,7 @@ contract CancelOrderTest is OrderBookTestBase {
             version: 1,
             originChainId: DEST_CHAIN_ID,
             sender: users["alice"].toBytes32(),
+            funder: users["alice"].toBytes32(),
             nonce: 0,
             destChainId: CHAIN_ID, // current chain ID
             createdAt: uint64(block.timestamp),
@@ -226,6 +227,7 @@ contract CancelOrderTest is OrderBookTestBase {
             version: 1,
             originChainId: DEST_CHAIN_ID,
             sender: users["alice"].toBytes32(),
+            funder: users["alice"].toBytes32(),
             nonce: 0,
             destChainId: DEST_CHAIN_ID, // Local order on another chain
             createdAt: uint64(block.timestamp),
@@ -401,6 +403,7 @@ contract CancelOrderTest is OrderBookTestBase {
             version: 1,
             originChainId: DEST_CHAIN_ID, // Order originated from another chain
             sender: users["alice"].toBytes32(),
+            funder: users["alice"].toBytes32(),
             nonce: 0,
             destChainId: CHAIN_ID, // This chain is the destination
             createdAt: uint64(block.timestamp),
@@ -589,6 +592,7 @@ contract CancelOrderTest is OrderBookTestBase {
             version: 1,
             originChainId: DEST_CHAIN_ID,
             sender: users["alice"].toBytes32(),
+            funder: users["alice"].toBytes32(),
             nonce: 1, // Use different nonce than setUp
             destChainId: CHAIN_ID,
             createdAt: uint64(block.timestamp),
@@ -618,6 +622,7 @@ contract CancelOrderTest is OrderBookTestBase {
             version: 1,
             originChainId: DEST_CHAIN_ID,
             sender: users["alice"].toBytes32(),
+            funder: users["alice"].toBytes32(),
             nonce: 2, // Use different nonce than other tests
             destChainId: CHAIN_ID,
             createdAt: uint64(block.timestamp),

@@ -80,6 +80,7 @@ contract CancelOrderForTest is OrderBookTestBase {
             version: 1,
             originChainId: DEST_CHAIN_ID, // Order originated from another chain
             sender: sender.addr.toBytes32(),
+            funder: sender.addr.toBytes32(),
             nonce: 0,
             destChainId: CHAIN_ID, // This chain is the destination
             createdAt: uint64(block.timestamp),
