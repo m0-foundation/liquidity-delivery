@@ -3,6 +3,9 @@ use anchor_lang::prelude::*;
 pub mod orders;
 pub use orders::*;
 
+pub mod pending;
+pub use pending::*;
+
 #[constant]
 pub const NONCE_SEED_PREFIX: &[u8] = b"nonce";
 

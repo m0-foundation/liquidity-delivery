@@ -24,6 +24,12 @@ abstract contract OrderBookStorageLayout {
         mapping(bytes32 orderId => IOrderBook.FilledAmounts) filledAmounts;
         // track nonces for each sender to ensure unique order IDs
         mapping(address sender => uint64 nonce) senderNonces;
+        // fills awaiting batched reporting, keyed by order and payout recipient (destination chain)
+        mapping(bytes32 orderId => mapping(bytes32 originRecipient => IOrderBook.PendingFillReport)) pendingFillReports;
+        // reports that failed during batch processing, retriable permissionlessly (origin chain)
+        mapping(bytes32 reportHash => bool isFailed) failedFillReports;
+        // origin chains whose portal delivery supports batch messages; gates deferral
+        mapping(uint32 originChainId => bool isSupported) batchReportSupported;
     }
 
     // keccak256(abi.encode(uint256(keccak256("M0.storage.OrderBook")) - 1)) & ~bytes32(uint256(0xff))
@@ -54,6 +60,11 @@ contract OrderBook is
 
     /// @notice Version of the limit order system
     uint16 public constant VERSION = 1;
+
+    /// @notice Maximum number of fill reports allowed in a single batch message
+    /// @dev 10 reports keeps the message within Hyperlane's 2 KB mailbox body cap with margin
+    ///      and bounds delivery gas under the Portal's flat per-payload-type gas limit
+    uint256 public constant MAX_FILL_REPORTS_PER_BATCH = 10;
 
     /// @notice the type hash used for cancel order signatures
     /// @dev keccak256("CancelOrder(bytes32 orderId,address bridgeAdapter,bytes bridgeAdapterArgs)")
@@ -412,13 +423,13 @@ contract OrderBook is
         messageId_ = _fillOrder(orderId_, orderData_, fillerParams_, bridgeAdapter_, bridgeAdapterArgs_);
     }
 
-    function _fillOrder(
+    /// @dev Shared fill logic: validation, fill accounting, and the tokenOut transfer.
+    ///      The settlement step (release, report, or deferral) is supplied by the caller.
+    function _fillOrderCore(
         bytes32 orderId_,
         OrderData calldata orderData_,
-        FillParams calldata fillerParams_,
-        address bridgeAdapter_,
-        bytes memory bridgeAdapterArgs_
-    ) internal whenNotPaused returns (bytes32 messageId_) {
+        FillParams calldata fillerParams_
+    ) internal returns (uint128 amountInToRelease_, uint128 amountOutToFill_) {
         _revertIfOrderIdMismatch(orderId_, orderData_);
 
         // Validate fill data
@@ -437,8 +448,6 @@ contract OrderBook is
         Order storage order = $.orders[orderId_];
         _revertIfInvalidStatusToFillOrCancel(order, orderData_);
 
-        uint128 amountInToRelease_;
-        uint128 amountOutToFill_;
         // Local scope to avoid stack too deep errors
         {
             // Calculate fill amount as the minimum of the filler provided amount and the remaining unfilled amount
@@ -475,9 +484,20 @@ contract OrderBook is
             orderData_.recipient.toAddress(),
             uint256(amountOutToFill_)
         );
+    }
+
+    function _fillOrder(
+        bytes32 orderId_,
+        OrderData calldata orderData_,
+        FillParams calldata fillerParams_,
+        address bridgeAdapter_,
+        bytes memory bridgeAdapterArgs_
+    ) internal whenNotPaused returns (bytes32 messageId_) {
+        (uint128 amountInToRelease_, uint128 amountOutToFill_) = _fillOrderCore(orderId_, orderData_, fillerParams_);
 
         // If local order, release the corresponding amount of origin tokens to the filler
         if (block.chainid == orderData_.originChainId) {
+            Order storage order = _getOrderBookStorageLocation().orders[orderId_];
             // Validate msg.value is 0 for local fills
             if (msg.value != 0) revert InvalidMsgValue();
 
@@ -523,15 +543,184 @@ contract OrderBook is
         emit OrderFilled(orderId_, msg.sender, amountInToRelease_, amountOutToFill_, messageId_);
     }
 
+    /* ========== Deferred Fill Reporting ========== */
+
+    /// @inheritdoc IOrderBook
+    function fillOrderWithoutReport(
+        bytes32 orderId_,
+        OrderData calldata orderData_,
+        FillParams calldata fillerParams_
+    ) external override whenNotPaused {
+        // Deferral is only meaningful for cross-chain orders
+        if (orderData_.originChainId == block.chainid) revert SameChainOrder();
+        // Never create a pending record toward a chain that can't receive batch messages,
+        // or the record would have no flush path
+        if (!_getOrderBookStorageLocation().batchReportSupported[orderData_.originChainId])
+            revert BatchReportsUnsupported();
+
+        (uint128 amountInToRelease_, uint128 amountOutToFill_) = _fillOrderCore(orderId_, orderData_, fillerParams_);
+
+        // Accrue the pending report instead of sending a message
+        PendingFillReport storage pending = _getOrderBookStorageLocation().pendingFillReports[orderId_][
+            fillerParams_.originRecipient
+        ];
+        pending.amountInToRelease += amountInToRelease_;
+        pending.amountOutFilled += amountOutToFill_;
+
+        emit FillReportDeferred(
+            orderId_,
+            msg.sender,
+            fillerParams_.originRecipient,
+            amountInToRelease_,
+            amountOutToFill_
+        );
+        emit OrderFilled(orderId_, msg.sender, amountInToRelease_, amountOutToFill_, bytes32(0));
+    }
+
+    /// @inheritdoc IOrderBook
+    function sendFillReports(
+        uint32 originChainId_,
+        OrderData[] calldata ordersData_,
+        bytes32[] calldata originRecipients_,
+        bytes32 refundAddress_,
+        address bridgeAdapter_,
+        bytes calldata bridgeAdapterArgs_
+    ) external payable override returns (bytes32 messageId_) {
+        // NOTE: deliberately NOT whenNotPaused — flushing pending reports while paused
+        // is part of the upgrade runbook
+        FillReport[] memory reports_ = _drainPendingReports(originChainId_, ordersData_, originRecipients_);
+
+        messageId_ = _sendReportsViaPortal(
+            originChainId_,
+            reports_,
+            refundAddress_,
+            bridgeAdapter_,
+            bridgeAdapterArgs_
+        );
+
+        for (uint256 i; i < reports_.length; ++i) {
+            emit PendingFillReported(
+                reports_[i].orderId,
+                reports_[i].originRecipient,
+                reports_[i].amountInToRelease,
+                reports_[i].amountOutFilled,
+                messageId_
+            );
+        }
+    }
+
+    /// @dev Drains the pending records for the given (order, recipient) pairs into a FillReport array.
+    ///      Already-drained entries are skipped, not reverted, so a front-run entry cannot grief the batch.
+    ///      The calldata OrderData is trusted only via its hash: getOrderId reproduces the storage key,
+    ///      so tokenIn and originChainId taken from calldata are exactly the values bound at creation.
+    function _drainPendingReports(
+        uint32 originChainId_,
+        OrderData[] calldata ordersData_,
+        bytes32[] calldata originRecipients_
+    ) internal returns (FillReport[] memory reports_) {
+        if (ordersData_.length != originRecipients_.length) revert ArrayLengthMismatch();
+        if (ordersData_.length > MAX_FILL_REPORTS_PER_BATCH) revert TooManyReports();
+
+        OrderBookStorageStruct storage $ = _getOrderBookStorageLocation();
+        reports_ = new FillReport[](ordersData_.length);
+        uint256 count_;
+
+        for (uint256 i; i < ordersData_.length; ++i) {
+            bytes32 orderId_ = getOrderId(ordersData_[i]);
+            if (ordersData_[i].originChainId != originChainId_) revert InvalidReportSource();
+            if (ordersData_[i].destChainId != block.chainid) revert InvalidDestinationChain();
+
+            PendingFillReport memory pending_ = $.pendingFillReports[orderId_][originRecipients_[i]];
+            if (pending_.amountOutFilled == 0) continue; // skip drained entries
+            delete $.pendingFillReports[orderId_][originRecipients_[i]];
+
+            reports_[count_++] = FillReport({
+                orderId: orderId_,
+                amountInToRelease: pending_.amountInToRelease,
+                amountOutFilled: pending_.amountOutFilled,
+                originRecipient: originRecipients_[i],
+                tokenIn: ordersData_[i].tokenIn
+            });
+        }
+        if (count_ == 0) revert NoPendingReports();
+
+        // Trim the reports array to the number of drained entries
+        assembly {
+            mstore(reports_, count_)
+        }
+    }
+
+    function _sendReportsViaPortal(
+        uint32 originChainId_,
+        FillReport[] memory reports_,
+        bytes32 refundAddress_,
+        address bridgeAdapter_,
+        bytes calldata bridgeAdapterArgs_
+    ) internal returns (bytes32 messageId_) {
+        messageId_ =
+            bridgeAdapter_ == address(0)
+                ? IPortalV2Like(portal).sendFillReports{ value: msg.value }(
+                    originChainId_,
+                    reports_,
+                    refundAddress_,
+                    bridgeAdapterArgs_
+                )
+                : IPortalV2Like(portal).sendFillReports{ value: msg.value }(
+                    originChainId_,
+                    reports_,
+                    refundAddress_,
+                    bridgeAdapter_,
+                    bridgeAdapterArgs_
+                );
+    }
+
+    /// @inheritdoc IOrderBook
+    function reportFills(uint32 sourceChainId_, FillReport[] calldata reports_) external override {
+        if (msg.sender != portal) revert NotAuthorized();
+
+        for (uint256 i; i < reports_.length; ++i) {
+            // Soft-fail: a report whose processing reverts (e.g. the token blacklists the
+            // originRecipient between fill and report) is parked for retry instead of
+            // reverting the sibling reports in the batch
+            try this.processFillReport(sourceChainId_, reports_[i]) {} catch {
+                bytes32 reportHash_ = keccak256(abi.encode(sourceChainId_, reports_[i]));
+                _getOrderBookStorageLocation().failedFillReports[reportHash_] = true;
+                emit FillReportFailed(sourceChainId_, reports_[i].orderId, reportHash_);
+            }
+        }
+    }
+
+    /// @notice Process a single fill report as part of a batch
+    /// @dev External wrapper so the batch loop can try/catch; self-call only
+    function processFillReport(uint32 sourceChainId_, FillReport calldata report_) external {
+        if (msg.sender != address(this)) revert NotAuthorized();
+        _processFillReport(sourceChainId_, report_);
+    }
+
+    /// @inheritdoc IOrderBook
+    function retryFillReport(uint32 sourceChainId_, FillReport calldata report_) external override {
+        OrderBookStorageStruct storage $ = _getOrderBookStorageLocation();
+        bytes32 reportHash_ = keccak256(abi.encode(sourceChainId_, report_));
+        if (!$.failedFillReports[reportHash_]) revert ReportNotFailed();
+        delete $.failedFillReports[reportHash_];
+        _processFillReport(sourceChainId_, report_);
+
+        emit FillReportRetried(report_.orderId, reportHash_);
+    }
+
     /* ========== Receiving Crosschain Reports ========== */
 
     /// @inheritdoc IOrderBook
     function reportFill(uint32 sourceChainId_, FillReport calldata report_) external override {
+        if (msg.sender != portal) revert NotAuthorized();
+        _processFillReport(sourceChainId_, report_);
+    }
+
+    function _processFillReport(uint32 sourceChainId_, FillReport calldata report_) internal {
         OrderBookStorageStruct storage $ = _getOrderBookStorageLocation();
         Order storage order = $.orders[report_.orderId];
 
-        // Validate the fill report and sender
-        if (msg.sender != portal) revert NotAuthorized();
+        // Validate the fill report
         // We allow reporting fills for both Created and Cancelled orders
         // The latter allows for fills that were in-flight at the time of cancellation
         // that may have arrived after the cancel report was processed due to the fact that
@@ -633,6 +822,23 @@ contract OrderBook is
     }
 
     /// @inheritdoc IOrderBook
+    function setBatchReportSupported(
+        uint32 originChainId_,
+        bool isSupported_
+    ) external override onlyRole(DEFAULT_ADMIN_ROLE) {
+        if (originChainId_ == block.chainid) revert SameChainOrder();
+
+        OrderBookStorageStruct storage $ = _getOrderBookStorageLocation();
+
+        // Don't update if the value is the same
+        if ($.batchReportSupported[originChainId_] == isSupported_) return;
+
+        $.batchReportSupported[originChainId_] = isSupported_;
+
+        emit BatchReportSupportUpdated(originChainId_, isSupported_);
+    }
+
+    /// @inheritdoc IOrderBook
     function pause() external onlyRole(PAUSER_ROLE) {
         _pause();
     }
@@ -710,6 +916,19 @@ contract OrderBook is
     /// @inheritdoc IOrderBook
     function isDestinationSupported(uint32 destChainId_) public view override returns (bool) {
         return destChainId_ == block.chainid || _getOrderBookStorageLocation().supportedDestinations[destChainId_];
+    }
+
+    /// @inheritdoc IOrderBook
+    function getPendingFillReport(
+        bytes32 orderId_,
+        bytes32 originRecipient_
+    ) external view override returns (PendingFillReport memory) {
+        return _getOrderBookStorageLocation().pendingFillReports[orderId_][originRecipient_];
+    }
+
+    /// @inheritdoc IOrderBook
+    function isBatchReportSupported(uint32 originChainId_) external view override returns (bool) {
+        return _getOrderBookStorageLocation().batchReportSupported[originChainId_];
     }
 
     /* ========== EIP-712 Digest Functions ========== */

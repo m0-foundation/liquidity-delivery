@@ -73,5 +73,7 @@ pub enum OrderBookError {
     #[msg("Reported refund amount is greater than available")]
     InvalidRefundAmount,
     #[msg("Transfer failed due to receiving less than specified")]
-    TransferExactFailed
+    TransferExactFailed,
+    #[msg("Invalid pending fill report accounts")]
+    InvalidPendingFillAccounts
 }
