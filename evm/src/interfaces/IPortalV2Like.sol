@@ -32,6 +32,34 @@ interface IPortalV2Like {
         bytes calldata bridgeAdapterArgs
     ) external payable returns (bytes32 messageId);
 
+    /// @notice Sends multiple fill reports to the destination chain in one message using the default bridge adapter.
+    /// @param  destinationChainId The ID of the destination chain.
+    /// @param  reports            The OrderBook fill reports to send.
+    /// @param  refundAddress      The address to receive excess native gas on the source chain.
+    /// @param  bridgeAdapterArgs  The optional bridge adapter arguments, could be empty.
+    /// @return messageId          The ID uniquely identifying the message.
+    function sendFillReports(
+        uint32 destinationChainId,
+        IOrderBook.FillReport[] calldata reports,
+        bytes32 refundAddress,
+        bytes calldata bridgeAdapterArgs
+    ) external payable returns (bytes32 messageId);
+
+    /// @notice Sends multiple fill reports to the destination chain in one message using the specified bridge adapter.
+    /// @param  destinationChainId The ID of the destination chain.
+    /// @param  reports            The OrderBook fill reports to send.
+    /// @param  refundAddress      The address to receive excess native gas on the source chain.
+    /// @param  bridgeAdapter      The address of the bridge adapter to use.
+    /// @param  bridgeAdapterArgs  The optional bridge adapter arguments, could be empty.
+    /// @return messageId          The ID uniquely identifying the message.
+    function sendFillReports(
+        uint32 destinationChainId,
+        IOrderBook.FillReport[] calldata reports,
+        bytes32 refundAddress,
+        address bridgeAdapter,
+        bytes calldata bridgeAdapterArgs
+    ) external payable returns (bytes32 messageId);
+
     /// @notice Sends the cancel report to the destination chain using the default bridge adapter.
     /// @param  destinationChainId The ID of the destination chain.
     /// @param  report             The OrderBook cancel report to send.

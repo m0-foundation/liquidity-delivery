@@ -132,6 +132,22 @@ pub mod order_book {
         FillForeignOrder::handler(ctx, order_id, order_data, fill_params)
     }
 
+    pub fn fill_foreign_order_no_report(
+        ctx: Context<FillForeignOrderNoReport>,
+        order_id: [u8; 32],
+        order_data: OrderData,
+        fill_params: FillParams,
+    ) -> Result<()> {
+        FillForeignOrderNoReport::handler(ctx, order_id, order_data, fill_params)
+    }
+
+    pub fn report_pending_fills<'info>(
+        ctx: Context<'_, '_, 'info, 'info, ReportPendingFills<'info>>,
+        origin_chain_id: u32,
+    ) -> Result<()> {
+        ReportPendingFills::handler(ctx, origin_chain_id)
+    }
+
     pub fn close_order_token_account(
         ctx: Context<CloseOrderTokenAccount>,
         order_id: [u8; 32],

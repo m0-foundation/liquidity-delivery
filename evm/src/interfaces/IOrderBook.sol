@@ -101,10 +101,75 @@ interface IOrderBook {
      */
     event CancelReported(bytes32 indexed orderId);
 
+    /**
+     * @notice Emitted when a fill is recorded without sending a fill report
+     * @dev This event is emitted on the destination chain instead of a crosschain message
+     * @param orderId The ID of the order that was filled
+     * @param solver The address of the solver that filled the order
+     * @param originRecipient The address on the origin chain that will receive released funds once reported
+     * @param amountInToRelease The amount of input token added to the pending report
+     * @param amountOutFilled The amount of output token added to the pending report
+     */
+    event FillReportDeferred(
+        bytes32 indexed orderId,
+        address indexed solver,
+        bytes32 indexed originRecipient,
+        uint128 amountInToRelease,
+        uint128 amountOutFilled
+    );
+
+    /**
+     * @notice Emitted when a pending fill report is drained into a batch message
+     * @dev This event is emitted on the destination chain, once per (order, recipient) entry in the batch
+     * @param orderId The ID of the order the report is for
+     * @param originRecipient The address on the origin chain that will receive released funds
+     * @param amountInToRelease The total pending amount of input token being reported
+     * @param amountOutFilled The total pending amount of output token being reported
+     * @param messageId The ID of the crosschain message carrying the batch of reports
+     */
+    event PendingFillReported(
+        bytes32 indexed orderId,
+        bytes32 indexed originRecipient,
+        uint128 amountInToRelease,
+        uint128 amountOutFilled,
+        bytes32 indexed messageId
+    );
+
+    /**
+     * @notice Emitted when a report inside a batch failed to process and was parked for retry
+     * @dev This event is emitted on the origin chain
+     * @param sourceChainId The chain ID that the batch was sent from
+     * @param orderId The ID of the order the failed report is for
+     * @param reportHash The hash identifying the failed report (see retryFillReport)
+     */
+    event FillReportFailed(uint32 indexed sourceChainId, bytes32 indexed orderId, bytes32 reportHash);
+
+    /**
+     * @notice Emitted when a parked fill report is successfully retried
+     * @dev This event is emitted on the origin chain
+     * @param orderId The ID of the order the report is for
+     * @param reportHash The hash identifying the retried report
+     */
+    event FillReportRetried(bytes32 indexed orderId, bytes32 reportHash);
+
+    /**
+     * @notice Emitted when batch report support for an origin chain is updated
+     * @dev This event is emitted on the destination chain
+     * @param originChainId The internal chain ID of the origin chain
+     * @param isSupported Whether fills of orders from this origin chain can defer their reports
+     */
+    event BatchReportSupportUpdated(uint32 indexed originChainId, bool isSupported);
+
     /* ========== Errors ========== */
     error AmountInZero();
     error AmountOutZero();
+    error ArrayLengthMismatch();
+    error BatchReportsUnsupported();
     error FillAmountZero();
+    error NoPendingReports();
+    error ReportNotFailed();
+    error SameChainOrder();
+    error TooManyReports();
     error InvalidDeadline();
     error InvalidDestinationChain();
     error InvalidMsgValue();
@@ -291,6 +356,18 @@ interface IOrderBook {
     struct FilledAmounts {
         uint128 amountInRefunded;
         uint128 amountInReleased;
+        uint128 amountOutFilled;
+    }
+
+    /**
+     * @notice Fill amounts recorded on the destination chain awaiting a batched report
+     * @dev tokenIn and originChainId are not stored; they are re-derived from the
+     *      hash-verified OrderData supplied to sendFillReports (single storage slot)
+     * @param amountInToRelease Accumulated amount of input token to release on the origin chain
+     * @param amountOutFilled Accumulated amount of output token filled on this chain
+     */
+    struct PendingFillReport {
+        uint128 amountInToRelease;
         uint128 amountOutFilled;
     }
 
@@ -505,6 +582,75 @@ interface IOrderBook {
         bytes calldata bridgeAdapterArgs_
     ) external payable returns (bytes32 messageId_);
 
+    /* ========== Deferred Fill Reporting ========== */
+
+    /**
+     * @notice Fill a cross-chain order WITHOUT sending the fill report
+     * @dev The report amounts accrue to the pending report for (orderId, originRecipient)
+     *      until drained by sendFillReports. Non-payable: no bridge message is sent.
+     * @dev Reverts for same-chain orders (they settle instantly and have nothing to report)
+     * @dev Reverts unless the order's origin chain is batch-capable (BatchReportsUnsupported) —
+     *      a pending record must never be creatable toward a chain that cannot receive batch
+     *      messages, or the funds would have no flush path
+     * @dev fillerParams_.refundAddress is ignored; the refund address is chosen at report time
+     * @param orderId_ ID of the order to fill
+     * @param orderData_ OrderData payload with all order information required to identify an order to be filled
+     * @param fillerParams_ Parameters supplied by the solver of the order
+     */
+    function fillOrderWithoutReport(
+        bytes32 orderId_,
+        OrderData calldata orderData_,
+        FillParams calldata fillerParams_
+    ) external;
+
+    /**
+     * @notice Send a single Portal message reporting all pending fills for the given
+     *         (order, originRecipient) pairs
+     * @dev Permissionless: draining a pending record can only pay out to the originRecipient
+     *      fixed at fill time, so third-party batching is safe
+     * @dev All orders in one call must share originChainId_ (one message goes to one chain).
+     *      At most MAX_FILL_REPORTS_PER_BATCH entries (TooManyReports).
+     *      Entries whose pending record is empty are SKIPPED, not reverted (front-run
+     *      robustness); reverts only if nothing at all was pending (NoPendingReports).
+     * @dev Deliberately callable while paused: flushing pending reports during a pause
+     *      is part of the upgrade runbook
+     * @dev The payable amount is forwarded to the underlying portal contract for the
+     *      crosschain message fee. See the Portal V2 contract for fee quoting.
+     * @param originChainId_ The origin chain that all provided orders share and the message is sent to
+     * @param ordersData_ OrderData payloads for the orders being reported (hash-verified against pending records)
+     * @param originRecipients_ The origin-chain recipient for each order's pending record
+     * @param refundAddress_ The address to send any bridge refund costs to
+     * @param bridgeAdapter_ Address of the bridge adapter to use, or zero address for the default adapter
+     * @param bridgeAdapterArgs_ Additional data required by some crosschain message protocols, can be empty
+     * @return messageId_ The ID of the crosschain message carrying the batch of reports
+     */
+    function sendFillReports(
+        uint32 originChainId_,
+        OrderData[] calldata ordersData_,
+        bytes32[] calldata originRecipients_,
+        bytes32 refundAddress_,
+        address bridgeAdapter_,
+        bytes calldata bridgeAdapterArgs_
+    ) external payable returns (bytes32 messageId_);
+
+    /**
+     * @notice Process a batch of fill reports delivered from a destination chain
+     * @dev Must be called by the portal contract. Batch counterpart of reportFill.
+     *      A report that fails to process is parked for retry (see retryFillReport)
+     *      instead of reverting the sibling reports in the batch.
+     * @param sourceChainId_ The chain ID that the batch of fill reports was sent from
+     * @param reports_ Fill data sent from the destination chain
+     */
+    function reportFills(uint32 sourceChainId_, FillReport[] calldata reports_) external;
+
+    /**
+     * @notice Retry a report that failed during batch processing
+     * @dev Permissionless and idempotent: the parked hash is cleared before processing
+     * @param sourceChainId_ The chain ID that the original batch was sent from
+     * @param report_ The exact fill report that failed
+     */
+    function retryFillReport(uint32 sourceChainId_, FillReport calldata report_) external;
+
     /**
      * @notice Report a fill that was made on another chain back to this chain as the origin chain
      * @dev Must be called by the portal contract
@@ -530,6 +676,16 @@ interface IOrderBook {
      * @param isSupported_ whether support for the chain should be enabled (true activates, false deactivates)
      */
     function setDestinationSupported(uint32 destChainId_, bool isSupported_) external;
+
+    /**
+     * @notice Enable/disable deferral + batch reporting toward an origin chain
+     * @dev Must be DEFAULT_ADMIN_ROLE to call
+     * @dev Gates fillOrderWithoutReport (record creation) only; existing pending records
+     *      remain drainable via sendFillReports after an origin chain is disabled
+     * @param originChainId_ The internal chain ID of the origin chain
+     * @param isSupported_ whether deferred reporting toward the chain should be enabled
+     */
+    function setBatchReportSupported(uint32 originChainId_, bool isSupported_) external;
 
     /**
      * @notice Pauses the contract.
@@ -581,6 +737,19 @@ interface IOrderBook {
 
     /// @notice Returns whether orders can be created with the provided chain ID as the destination
     function isDestinationSupported(uint32 destChainId_) external view returns (bool);
+
+    /**
+     * @notice Returns the pending (deferred, unreported) fill amounts for an order and origin recipient
+     * @param orderId_ The ID of the order
+     * @param originRecipient_ The origin-chain recipient the pending fills accrue to
+     */
+    function getPendingFillReport(
+        bytes32 orderId_,
+        bytes32 originRecipient_
+    ) external view returns (PendingFillReport memory);
+
+    /// @notice Returns whether fills of orders originating on the provided chain ID can defer their reports
+    function isBatchReportSupported(uint32 originChainId_) external view returns (bool);
 
     /* ========== EIP-712 Digest Functions ========== */
 

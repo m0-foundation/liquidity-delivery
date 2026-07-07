@@ -1,9 +1,10 @@
 use crate::{
-    constants::{ANCHOR_DISCRIMINATOR_SIZE, VERSION}, 
+    constants::{ANCHOR_DISCRIMINATOR_SIZE, VERSION},
     error::OrderBookError,
     state::{
-        ForeignOrder, GLOBAL_SEED, NativeOrder, ORDER_SEED_PREFIX, Order, 
-        OrderBookGlobal, OrderData, OrderStatus, OrderType, compute_order_id
+        ForeignOrder, GLOBAL_SEED, NativeOrder, ORDER_SEED_PREFIX, Order,
+        OrderBookGlobal, OrderData, OrderStatus, OrderType, compute_order_id,
+        PendingFillReport, PENDING_FILL_SEED_PREFIX
     }, utils::{transfer_tokens_from_program, transfer_exact_tokens, transfer_exact_tokens_from_program}
 };
 use anchor_lang::prelude::*;
@@ -73,6 +74,15 @@ pub struct FillReported {
     pub amount_in_to_release: u128,
     pub amount_out_filled: u128,
     pub origin_recipient: [u8; 32],
+}
+
+#[event]
+pub struct FillReportDeferred {
+    pub order_id: [u8; 32],
+    pub solver: Pubkey,
+    pub origin_recipient: [u8; 32],
+    pub amount_in_to_release: u128,
+    pub amount_out_filled: u128,
 }
 
 // Instruction Contexts and Handlers
@@ -375,46 +385,13 @@ impl<'info> FillForeignOrder<'info> {
         order_data: OrderData,
         fill_params: FillParams,
     ) -> Result<()> {
-        // If this is a new order, initialize it
-        if ctx.accounts.order.data.status == OrderStatus::DoesNotExist {
-            ctx.accounts.order.set_inner(Order::<ForeignOrder> {
-                order_type: OrderType::Foreign,
-                bump: ctx.bumps.order,
-                data: ForeignOrder {
-                    status: OrderStatus::Created,
-                    amount_in_released: 0,
-                    amount_out_filled: 0,
-                    amount_in_refunded: 0
-                }
-            });
-        } else {
-            // Otherwise, validate the type of the order
-            require!(
-                ctx.accounts.order.order_type == OrderType::Foreign,
-                OrderBookError::InvalidOrderType
-            );
-        }
-
-        let order = &mut ctx.accounts.order.data;
-
-        // Calculate the fill amount as the minimum of the provided fill amount out and the remaining amount out to fill
-        // Also, calculate the corresponding amount in to release to the solver
-        let (full_fill, amount_in_to_release, amount_out_to_fill) = calculate_fill(
-            order_data.amount_in,
-            order_data.amount_out,
-            order.amount_in_released,
-            order.amount_out_filled,
-            fill_params.amount_out_to_fill as u128
+        // Initialize (if needed) and apply the fill accounting to the foreign order
+        let (_, amount_in_to_release, amount_out_to_fill) = apply_foreign_order_fill(
+            &mut ctx.accounts.order,
+            ctx.bumps.order,
+            &order_data,
+            &fill_params,
         )?;
-
-        if full_fill {
-            // Set the order status to completed
-            order.status = OrderStatus::Completed;
-        };
-
-        // Update the fill amounts on the order
-        order.amount_in_released += amount_in_to_release as u128;
-        order.amount_out_filled += amount_out_to_fill as u128;
 
         // Transfer the output tokens from the solver to the recipient
         // Check that actual amount is received
@@ -449,6 +426,225 @@ impl<'info> FillForeignOrder<'info> {
             fill_params.origin_recipient, // origin_recipient: [u8; 32],
             order_data.origin_chain_id, // origin_chain_id: u32,
         )?;
+
+        // Emit a fill event
+        emit_cpi!(OrderFilled {
+            order_id,
+            solver: ctx.accounts.solver.key(),
+            amount_in_to_release: amount_in_to_release as u128,
+            amount_out_filled: amount_out_to_fill as u128,
+        });
+
+        Ok(())
+    }
+}
+
+/// Shared foreign-order fill logic: initializes the order account on first fill,
+/// applies the fill accounting, and updates the order status.
+/// The settlement step (portal report or pending-report accrual) is supplied by the caller.
+fn apply_foreign_order_fill(
+    order_account: &mut Account<'_, Order<ForeignOrder>>,
+    order_bump: u8,
+    order_data: &OrderData,
+    fill_params: &FillParams,
+) -> Result<(bool, u64, u64)> {
+    // If this is a new order, initialize it
+    if order_account.data.status == OrderStatus::DoesNotExist {
+        order_account.set_inner(Order::<ForeignOrder> {
+            order_type: OrderType::Foreign,
+            bump: order_bump,
+            data: ForeignOrder {
+                status: OrderStatus::Created,
+                amount_in_released: 0,
+                amount_out_filled: 0,
+                amount_in_refunded: 0
+            }
+        });
+    } else {
+        // Otherwise, validate the type of the order
+        require!(
+            order_account.order_type == OrderType::Foreign,
+            OrderBookError::InvalidOrderType
+        );
+    }
+
+    let order = &mut order_account.data;
+
+    // Calculate the fill amount as the minimum of the provided fill amount out and the remaining amount out to fill
+    // Also, calculate the corresponding amount in to release to the solver
+    let (full_fill, amount_in_to_release, amount_out_to_fill) = calculate_fill(
+        order_data.amount_in,
+        order_data.amount_out,
+        order.amount_in_released,
+        order.amount_out_filled,
+        fill_params.amount_out_to_fill as u128
+    )?;
+
+    if full_fill {
+        // Set the order status to completed
+        order.status = OrderStatus::Completed;
+    };
+
+    // Update the fill amounts on the order
+    order.amount_in_released += amount_in_to_release as u128;
+    order.amount_out_filled += amount_out_to_fill as u128;
+
+    Ok((full_fill, amount_in_to_release, amount_out_to_fill))
+}
+
+#[event_cpi]
+#[derive(Accounts)]
+#[instruction(order_id: [u8; 32], order_data: OrderData, fill_params: FillParams)]
+pub struct FillForeignOrderNoReport<'info> {
+    #[account(mut)]
+    pub solver: Signer<'info>,
+
+    #[account(
+        seeds = [GLOBAL_SEED],
+        bump = global_account.bump,
+        constraint = order_data.dest_chain_id == global_account.chain_id @ OrderBookError::InvalidDestChainId,
+        constraint = !global_account.paused @ OrderBookError::ProgramPaused,
+    )]
+    pub global_account: Account<'info, OrderBookGlobal>,
+
+    #[account(
+        mint::token_program = token_out_program,
+        constraint = token_out_mint.key().to_bytes() == order_data.token_out @ OrderBookError::InvalidTokenOutMint,
+    )]
+    pub token_out_mint: InterfaceAccount<'info, Mint>,
+
+    #[account(
+        mut,
+        token::mint = token_out_mint,
+        token::token_program = token_out_program,
+    )]
+    pub solver_token_out_account: InterfaceAccount<'info, TokenAccount>,
+
+    /// CHECK: This is validated against the order data
+    #[account(
+        address = Pubkey::new_from_array(order_data.recipient) @ OrderBookError::InvalidRecipient,
+    )]
+    pub recipient: UncheckedAccount<'info>,
+
+    #[account(
+        init_if_needed,
+        payer = solver,
+        associated_token::mint = token_out_mint,
+        associated_token::authority = recipient,
+        associated_token::token_program = token_out_program,
+    )]
+    pub recipient_token_out_ata: InterfaceAccount<'info, TokenAccount>,
+
+    pub token_out_program: Interface<'info, TokenInterface>,
+
+    pub associated_token_program: Program<'info, AssociatedToken>,
+
+    pub system_program: Program<'info, System>,
+
+    #[account(
+        init_if_needed,
+        payer = solver,
+        space = ANCHOR_DISCRIMINATOR_SIZE + Order::<ForeignOrder>::INIT_SPACE,
+        seeds = [ORDER_SEED_PREFIX, &order_id],
+        bump
+    )]
+    pub order: Box<Account<'info, Order::<ForeignOrder>>>,
+
+    // No portal accounts: the fill report is deferred and accrues here until
+    // report_pending_fills drains it into a batch message
+    #[account(
+        init_if_needed,
+        payer = solver,
+        space = ANCHOR_DISCRIMINATOR_SIZE + PendingFillReport::INIT_SPACE,
+        seeds = [PENDING_FILL_SEED_PREFIX, &order_id, &fill_params.origin_recipient],
+        bump,
+    )]
+    pub pending_fill_report: Box<Account<'info, PendingFillReport>>,
+}
+
+impl FillForeignOrderNoReport<'_> {
+    fn validate(
+        &self,
+        order_id: &[u8; 32],
+        order_data: &OrderData,
+        fill_params: &FillParams,
+    ) -> Result<()> {
+        // Validate the params
+        validate_params(order_id, order_data, fill_params, &self.solver.key())?;
+
+        // Validate the order status is fillable (i.e. DoesNotExist or Created, if already partially filled)
+        require!(
+            self.order.data.status == OrderStatus::DoesNotExist || self.order.data.status == OrderStatus::Created,
+            OrderBookError::OrderNotFillable
+        );
+
+        // Prevent front-running: foreign order must not originate from this chain
+        require!(order_data.origin_chain_id != self.global_account.chain_id,
+            OrderBookError::InvalidOriginChainId
+        );
+
+        // Validate the origin recipient is not the zero address
+        require!(
+            fill_params.origin_recipient != [0u8; 32],
+            OrderBookError::InvalidRecipient
+        );
+
+        Ok(())
+    }
+
+    #[access_control(ctx.accounts.validate(&order_id, &order_data, &fill_params))]
+    pub fn handler(
+        ctx: Context<Self>,
+        order_id: [u8; 32],
+        order_data: OrderData,
+        fill_params: FillParams,
+    ) -> Result<()> {
+        // Initialize (if needed) and apply the fill accounting to the foreign order
+        // Accounting happens at fill time; only the message is deferred, so a later
+        // destination-chain cancel already excludes these amounts from the refund
+        let (_, amount_in_to_release, amount_out_to_fill) = apply_foreign_order_fill(
+            &mut ctx.accounts.order,
+            ctx.bumps.order,
+            &order_data,
+            &fill_params,
+        )?;
+
+        // Transfer the output tokens from the solver to the recipient
+        // Check that actual amount is received
+        transfer_exact_tokens(
+            &ctx.accounts.solver_token_out_account,
+            &mut ctx.accounts.recipient_token_out_ata,
+            amount_out_to_fill,
+            &ctx.accounts.token_out_mint,
+            &ctx.accounts.solver,
+            &ctx.accounts.token_out_program,
+        )?;
+
+        // Accrue the pending report instead of sending a message
+        let pending = &mut ctx.accounts.pending_fill_report;
+        if pending.amount_out_filled == 0 && pending.amount_in_to_release == 0 {
+            // Fresh (or re-created after a previous drain) account: set the identity fields.
+            // order_data is hash-verified against order_id by validate_params and the PDA
+            // seeds bind order_id + origin_recipient, so these are consistent across
+            // accumulating fills by construction.
+            pending.bump = ctx.bumps.pending_fill_report;
+            pending.solver = ctx.accounts.solver.key();
+            pending.payer = ctx.accounts.solver.key();
+            pending.order_id = order_id;
+            pending.origin_chain_id = order_data.origin_chain_id;
+            pending.token_in = order_data.token_in;
+            pending.origin_recipient = fill_params.origin_recipient;
+        }
+        pending.amount_in_to_release += amount_in_to_release as u128;
+        pending.amount_out_filled += amount_out_to_fill as u128;
+
+        emit_cpi!(FillReportDeferred {
+            order_id,
+            solver: ctx.accounts.solver.key(),
+            origin_recipient: fill_params.origin_recipient,
+            amount_in_to_release: amount_in_to_release as u128,
+            amount_out_filled: amount_out_to_fill as u128,
+        });
 
         // Emit a fill event
         emit_cpi!(OrderFilled {

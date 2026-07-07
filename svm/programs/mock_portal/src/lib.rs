@@ -25,6 +25,31 @@ pub mod mock_portal {
         Ok(())
     }
 
+    pub fn send_fill_reports(
+        _ctx: Context<SendReport>,
+        reports: Vec<FillReportPayload>,
+        origin_chain_id: u32,
+    ) -> Result<()> {
+        msg!(
+            "Sending {} order filled messages to chain {} in one message",
+            reports.len(),
+            origin_chain_id,
+        );
+        for report in &reports {
+            msg!(
+                "Fill report: {:?}",
+                (
+                    report.order_id,
+                    report.token_in,
+                    report.amount_in_to_release,
+                    report.amount_out_filled,
+                    report.origin_recipient
+                )
+            );
+        }
+        Ok(())
+    }
+
     pub fn send_cancel_report(
         _ctx: Context<SendReport>,
         order_id: [u8; 32],
@@ -40,6 +65,15 @@ pub mod mock_portal {
         );
         Ok(())
     }
+}
+
+#[derive(AnchorSerialize, AnchorDeserialize, Clone)]
+pub struct FillReportPayload {
+    pub order_id: [u8; 32],
+    pub token_in: [u8; 32],
+    pub amount_in_to_release: u128,
+    pub amount_out_filled: u128,
+    pub origin_recipient: [u8; 32],
 }
 
 #[derive(Accounts)]

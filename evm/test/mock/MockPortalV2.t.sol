@@ -14,6 +14,12 @@ contract MockPortalV2 is IPortalV2Like {
     mapping(bytes32 => bool) public cancelReports;
     mapping(bytes32 => uint256) public cancelReportValues;
 
+    // last batch sent via sendFillReports
+    IOrderBook.FillReport[] public lastBatchReports;
+    uint32 public lastBatchDestinationChainId;
+    bytes32 public lastBatchRefundAddress;
+    uint256 public lastBatchValue;
+
     function setOrderBook(address orderBook_) external {
         orderBook = orderBook_;
     }
@@ -43,6 +49,43 @@ contract MockPortalV2 is IPortalV2Like {
         messageId = keccak256(abi.encodePacked("fill", report.orderId));
     }
 
+    function sendFillReports(
+        uint32 destinationChainId,
+        IOrderBook.FillReport[] calldata reports,
+        bytes32 refundAddress,
+        bytes calldata bridgeAdapterArgs
+    ) external payable override returns (bytes32 messageId) {
+        messageId = _recordFillReports(destinationChainId, reports, refundAddress);
+    }
+
+    function sendFillReports(
+        uint32 destinationChainId,
+        IOrderBook.FillReport[] calldata reports,
+        bytes32 refundAddress,
+        address bridgeAdapter,
+        bytes calldata bridgeAdapterArgs
+    ) external payable override returns (bytes32 messageId) {
+        messageId = _recordFillReports(destinationChainId, reports, refundAddress);
+    }
+
+    function _recordFillReports(
+        uint32 destinationChainId,
+        IOrderBook.FillReport[] calldata reports,
+        bytes32 refundAddress
+    ) internal returns (bytes32 messageId) {
+        delete lastBatchReports;
+        for (uint256 i; i < reports.length; ++i) {
+            fillReports[reports[i].orderId] = reports[i];
+            fillReportRefundAddresses[reports[i].orderId] = refundAddress;
+            lastBatchReports.push(reports[i]);
+            emit FillReportSent(destinationChainId, reports[i], refundAddress);
+        }
+        lastBatchDestinationChainId = destinationChainId;
+        lastBatchRefundAddress = refundAddress;
+        lastBatchValue = msg.value;
+        messageId = keccak256(abi.encode("fills", reports));
+    }
+
     function sendCancelReport(
         uint32 destinationChainId,
         IOrderBook.CancelReport calldata report,
@@ -70,6 +113,14 @@ contract MockPortalV2 is IPortalV2Like {
 
     function receiveFillReport(uint32 sourceChainId, IOrderBook.FillReport calldata report) external {
         IOrderBook(orderBook).reportFill(sourceChainId, report);
+    }
+
+    function receiveFillReports(uint32 sourceChainId, IOrderBook.FillReport[] calldata reports) external {
+        IOrderBook(orderBook).reportFills(sourceChainId, reports);
+    }
+
+    function getLastBatchLength() external view returns (uint256) {
+        return lastBatchReports.length;
     }
 
     function receiveCancelReport(uint32 sourceChainId, IOrderBook.CancelReport calldata report) external {

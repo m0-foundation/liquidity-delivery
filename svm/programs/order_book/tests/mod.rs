@@ -1304,4 +1304,169 @@ impl OrderBookTest {
 
         Ok(())
     }
+
+    // Deferred fill report helpers
+
+    fn get_pending_fill_report_pda(
+        &self,
+        order_id: &[u8; 32],
+        origin_recipient: &[u8; 32],
+    ) -> Pubkey {
+        self.ctx.svm.get_pda(
+            &[
+                order_book::state::PENDING_FILL_SEED_PREFIX,
+                order_id,
+                origin_recipient,
+            ],
+            &order_book::ID,
+        )
+    }
+
+    fn get_pending_fill_report_account(
+        &self,
+        order_id: &[u8; 32],
+        origin_recipient: &[u8; 32],
+    ) -> Result<(Pubkey, order_book::state::PendingFillReport), Box<dyn Error>> {
+        let pending_account = self.get_pending_fill_report_pda(order_id, origin_recipient);
+
+        let pending_account_data: order_book::state::PendingFillReport =
+            get_anchor_account(&self.ctx.svm, &pending_account)?;
+
+        Ok((pending_account, pending_account_data))
+    }
+
+    fn create_fill_foreign_order_no_report_ix(
+        &self,
+        solver: &Pubkey,
+        order_data: &OrderData,
+        fill_params: &order_book::instructions::fill::FillParams,
+    ) -> Result<Instruction, Box<dyn Error>> {
+        let order_id = order_data.compute_order_id();
+        let order_account = self
+            .ctx
+            .svm
+            .get_pda(&[ORDER_SEED_PREFIX, &order_id], &order_book::ID);
+        let (global_account, _) = self.get_global_account()?;
+
+        let token_out_mint = Pubkey::new_from_array(order_data.token_out);
+        let recipient = Pubkey::new_from_array(order_data.recipient);
+        let recipient_token_out_ata = get_associated_token_address(&recipient, &token_out_mint);
+        let solver_token_out_ata = get_associated_token_address(solver, &token_out_mint);
+        let pending_fill_report =
+            self.get_pending_fill_report_pda(&order_id, &fill_params.origin_recipient);
+
+        let ix = self
+            .ctx
+            .program()
+            .accounts(order_book::accounts::FillForeignOrderNoReport {
+                program: order_book::ID,
+                event_authority: self.get_event_authority()?,
+                solver: *solver,
+                global_account,
+                token_out_mint,
+                solver_token_out_account: solver_token_out_ata,
+                recipient,
+                recipient_token_out_ata,
+                token_out_program: anchor_spl::token::ID,
+                associated_token_program: anchor_spl::associated_token::ID,
+                system_program: anchor_lang::solana_program::system_program::ID,
+                order: order_account,
+                pending_fill_report,
+            })
+            .args(order_book::instruction::FillForeignOrderNoReport {
+                order_id,
+                order_data: order_data.clone(),
+                fill_params: fill_params.clone(),
+            })
+            .instruction()?;
+
+        Ok(ix)
+    }
+
+    fn fill_foreign_order_no_report(
+        &mut self,
+        solver: &str,
+        order_data: &OrderData,
+        amount_out_to_fill: u64,
+    ) -> Result<(), Box<dyn Error>> {
+        let solver_keypair = self.users.get(solver).unwrap();
+
+        let fill_params = order_book::instructions::FillParams {
+            amount_out_to_fill,
+            origin_recipient: solver_keypair.pubkey().to_bytes(),
+        };
+
+        let ix = self.create_fill_foreign_order_no_report_ix(
+            &solver_keypair.pubkey(),
+            order_data,
+            &fill_params,
+        )?;
+
+        self.ctx
+            .execute_instruction(ix, &[solver_keypair])?
+            .assert_success();
+
+        Ok(())
+    }
+
+    fn create_report_pending_fills_ix(
+        &self,
+        signer: &Pubkey,
+        origin_chain_id: u32,
+        pending_payer_pairs: &[(Pubkey, Pubkey)],
+    ) -> Result<Instruction, Box<dyn Error>> {
+        let (global_account, _) = self.get_global_account()?;
+
+        let mut ix = self
+            .ctx
+            .program()
+            .accounts(order_book::accounts::ReportPendingFills {
+                program: order_book::ID,
+                event_authority: self.get_event_authority()?,
+                signer: *signer,
+                global_account,
+                portal_program: portal::ID,
+                portal_global: self.ctx.svm.get_pda(&[GLOBAL_SEED], &portal::ID),
+                portal_authority: self.ctx.svm.get_pda(&[b"authority"], &portal::ID),
+                bridge_adapter: self.ctx.svm.get_pda(&[b"bridge_adapter"], &portal::ID),
+                system_program: anchor_lang::solana_program::system_program::ID,
+            })
+            .args(order_book::instruction::ReportPendingFills { origin_chain_id })
+            .instruction()?;
+
+        // Append the (pending_pda, payer) pairs as remaining accounts; both must be
+        // writable (the pending account is closed and its rent returned to the payer)
+        for (pending, payer) in pending_payer_pairs {
+            ix.accounts
+                .push(anchor_lang::solana_program::instruction::AccountMeta::new(
+                    *pending, false,
+                ));
+            ix.accounts
+                .push(anchor_lang::solana_program::instruction::AccountMeta::new(
+                    *payer, false,
+                ));
+        }
+
+        Ok(ix)
+    }
+
+    fn report_pending_fills(
+        &mut self,
+        signer: &str,
+        origin_chain_id: u32,
+        pending_payer_pairs: &[(Pubkey, Pubkey)],
+    ) -> Result<(), Box<dyn Error>> {
+        let signer_keypair = self.get_user(signer);
+        let ix = self.create_report_pending_fills_ix(
+            &signer_keypair.pubkey(),
+            origin_chain_id,
+            pending_payer_pairs,
+        )?;
+
+        self.ctx
+            .execute_instruction(ix, &[&signer_keypair])?
+            .assert_success();
+
+        Ok(())
+    }
 }
