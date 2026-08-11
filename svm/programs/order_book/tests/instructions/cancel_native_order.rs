@@ -82,6 +82,8 @@ mod local_orders {
             sender_token_in_ata: test.get_ata("token-in-spl-6", "alice"),
             order_token_in_ata: fake_order_token_in_ata,
             token_in_program: anchor_spl::token::ID,
+            associated_token_program: anchor_spl::associated_token::ID,
+            system_program: anchor_lang::solana_program::system_program::ID,
         };
 
         let ix =
@@ -233,6 +235,8 @@ mod local_orders {
             sender_token_in_ata,
             order_token_in_ata,
             token_in_program: anchor_spl::token::ID,
+            associated_token_program: anchor_spl::associated_token::ID,
+            system_program: anchor_lang::solana_program::system_program::ID,
         };
 
         // Try to cancel the nonexistent foreign order
@@ -300,6 +304,8 @@ mod local_orders {
             sender_token_in_ata,
             order_token_in_ata,
             token_in_program: anchor_spl::token::ID,
+            associated_token_program: anchor_spl::associated_token::ID,
+            system_program: anchor_lang::solana_program::system_program::ID,
         };
 
         // Try to cancel the initialized foreign order locally with cancel_native_order
@@ -608,6 +614,28 @@ mod local_orders {
             carol_balance + order_params.amount_in
         );
         assert_eq!(test.get_token_balance(&alice_ata)?, alice_balance);
+
+        Ok(())
+    }
+
+    #[test]
+    fn test_cancel_native_order_creates_missing_sender_ata() -> Result<(), Box<dyn Error>> {
+        let mut test = OrderBookTest::new()?;
+        test.initialize()?;
+
+        // Alice funds the order; bob owns it and has no token account yet
+        let mut order_params = default_order_params(&test);
+        order_params.sender = test.get_user("bob").pubkey();
+        let order_id = test.open_order("alice", "token-in-spl-6", &order_params)?;
+
+        // Bob cancels; the instruction creates his ATA and refunds into it
+        test.cancel_native_order("bob", "bob", order_id)?;
+
+        let bob_ata = anchor_spl::associated_token::get_associated_token_address(
+            &test.get_user("bob").pubkey(),
+            &test.get_mint("token-in-spl-6"),
+        );
+        assert_eq!(test.get_token_balance(&bob_ata)?, order_params.amount_in);
 
         Ok(())
     }
