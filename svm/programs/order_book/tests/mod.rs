@@ -635,15 +635,16 @@ impl OrderBookTest {
 
     fn create_open_order_ix(
         &self,
-        sender: &Pubkey,
+        payer: &Pubkey,
         token_in_mint: &Pubkey,
         sender_token_in_account: &Pubkey,
         token_authority: Option<&Pubkey>,
         order_params: &order_book::instructions::open::OrderParams,
     ) -> Result<([u8; 32], Instruction), Box<dyn Error>> {
         let (global_account, global_data) = self.get_global_account().unwrap();
-        let (sender_nonce_account, sender_nonce_data) =
-            self.get_sender_nonce_account(sender).unwrap();
+        let (sender_nonce_account, sender_nonce_data) = self
+            .get_sender_nonce_account(&order_params.sender)
+            .unwrap();
 
         let destination_account = if order_params.dest_chain_id != global_data.chain_id {
             Some(self.ctx.svm.get_pda(
@@ -659,7 +660,7 @@ impl OrderBookTest {
 
         let order_id = order_book::state::compute_order_id(&order_book::state::OrderData {
             version: order_book::constants::VERSION,
-            sender: sender.to_bytes(),
+            sender: order_params.sender.to_bytes(),
             nonce: sender_nonce_data.value,
             origin_chain_id: global_data.chain_id,
             dest_chain_id: order_params.dest_chain_id,
@@ -684,7 +685,7 @@ impl OrderBookTest {
             .accounts(order_book::accounts::OpenOrder {
                 program: order_book::ID,
                 event_authority: self.get_event_authority()?,
-                payer: *sender,
+                payer: *payer,
                 token_authority: token_authority.cloned(),
                 global_account,
                 destination_account,

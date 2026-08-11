@@ -47,6 +47,7 @@ mod local_orders {
             amount_out: 1_000_000,
             recipient: test.users.get(sender).unwrap().pubkey().to_bytes(),
             solver: test.users.get("solver").unwrap().pubkey().to_bytes(),
+            sender: test.get_user(sender).pubkey(),
         }
     }
 
@@ -568,6 +569,89 @@ mod local_orders {
 
         Ok(())
     }
+
+    #[test]
+    fn test_success_with_sender_different_from_funder() -> Result<(), Box<dyn Error>> {
+        let mut test = OrderBookTest::new()?;
+        test.initialize()?;
+
+        // Alice funds the order, bob owns it (cancel/refund rights)
+        let alice = test.get_user("alice");
+        let bob = test.get_user("bob");
+        let token_in_mint = test.get_mint("token-in-spl-6");
+        let funder_token_in_account = test.get_ata("token-in-spl-6", "alice");
+
+        let mut order_params = default_order_params(&test, "alice");
+        order_params.sender = bob.pubkey();
+
+        let (order_id, ix) = test.create_open_order_ix(
+            &alice.pubkey(),
+            &token_in_mint,
+            &funder_token_in_account,
+            None,
+            &order_params,
+        )?;
+
+        let starting_balance = test.get_token_balance(&funder_token_in_account)?;
+
+        test.ctx
+            .execute_instruction(ix, &[&alice])?
+            .assert_success();
+
+        // The order is owned by bob, paid for and funded by alice
+        let (order_account, order) = test.get_native_order_account(&order_id)?;
+        assert_eq!(order.data.sender, bob.pubkey());
+        assert_eq!(order.data.payer, alice.pubkey());
+        assert_eq!(order.data.nonce, 0);
+
+        // The nonce is tracked against bob (the order owner), not the funder
+        let (_, bob_nonce) = test.get_sender_nonce_account(&bob.pubkey())?;
+        assert_eq!(bob_nonce.value, 1);
+        let (_, alice_nonce) = test.get_sender_nonce_account(&alice.pubkey())?;
+        assert_eq!(alice_nonce.value, 0);
+
+        // Alice's tokens fund the escrow
+        assert_eq!(
+            test.get_token_balance(&funder_token_in_account)?,
+            starting_balance - order_params.amount_in
+        );
+        assert_eq!(
+            test.get_token_balance(&get_associated_token_address(
+                &order_account,
+                &token_in_mint
+            ))?,
+            order_params.amount_in
+        );
+
+        Ok(())
+    }
+
+    #[test]
+    fn test_zero_sender_reverts() -> Result<(), Box<dyn Error>> {
+        let mut test = OrderBookTest::new()?;
+        test.initialize()?;
+
+        let alice = test.get_user("alice");
+        let token_in_mint = test.get_mint("token-in-spl-6");
+        let sender_token_in_account = test.get_ata("token-in-spl-6", "alice");
+
+        let mut order_params = default_order_params(&test, "alice");
+        order_params.sender = anchor_litesvm::Pubkey::default();
+
+        let (_, ix) = test.create_open_order_ix(
+            &alice.pubkey(),
+            &token_in_mint,
+            &sender_token_in_account,
+            None,
+            &order_params,
+        )?;
+
+        test.ctx
+            .execute_instruction(ix, &[&alice])?
+            .assert_anchor_error(&format!("{:?}", OrderBookError::InvalidSender));
+
+        Ok(())
+    }
 }
 
 mod xchain_orders {
@@ -613,6 +697,7 @@ mod xchain_orders {
             amount_out: 1_000_000,
             recipient: test.users.get(sender).unwrap().pubkey().to_bytes(),
             solver: test.users.get("solver").unwrap().pubkey().to_bytes(),
+            sender: test.get_user(sender).pubkey(),
         }
     }
 
