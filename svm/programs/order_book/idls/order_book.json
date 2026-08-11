@@ -2,7 +2,7 @@
   "address": "MzLoYnJ6sF6eeejs4vV95TNmXqS3W4cAtLGKkjT4ZrK",
   "metadata": {
     "name": "order_book",
-    "version": "0.1.0",
+    "version": "0.1.1",
     "spec": "0.1.0",
     "description": "SVM implementation of the M0 limit order specification for cross-chain liquidity delivery"
   },
@@ -943,8 +943,8 @@
                 "value": [110, 111, 110, 99, 101]
               },
               {
-                "kind": "account",
-                "path": "sender_token_in_account"
+                "kind": "arg",
+                "path": "params.sender"
               }
             ]
           }
@@ -1496,11 +1496,7 @@
       "discriminator": [143, 197, 147, 95, 106, 165, 50, 43]
     },
     {
-      "name": "NativeOrder",
-      "discriminator": [134, 173, 223, 185, 77, 86, 28, 51]
-    },
-    {
-      "name": "ForeignOrder",
+      "name": "Order",
       "discriminator": [134, 173, 223, 185, 77, 86, 28, 51]
     },
     {
@@ -2303,6 +2299,15 @@
             "type": {
               "array": ["u8", 32]
             }
+          },
+          {
+            "name": "sender",
+            "docs": [
+              "Owner of the order (cancel/refund rights).",
+              "Tokens are pulled from `sender_token_in_account`, so the funder and the",
+              "order owner may differ (e.g. a deposit address funding an order for an end user)."
+            ],
+            "type": "pubkey"
           }
         ]
       }

@@ -25,6 +25,10 @@ pub struct OrderParams {
     pub amount_out: u128,
     pub recipient: [u8; 32],
     pub solver: [u8; 32],
+    /// Owner of the order (cancel/refund rights).
+    /// Tokens are pulled from `sender_token_in_account`, so the funder and the
+    /// order owner may differ (e.g. a deposit address funding an order for an end user).
+    pub sender: Pubkey,
 }
 
 const CREATED_AT_WINDOW: u64 = 300; // 300 second (5 minute) window for created_at timestamp
@@ -67,7 +71,7 @@ pub struct OpenOrder<'info> {
         init_if_needed,
         payer = payer,
         space = ANCHOR_DISCRIMINATOR_SIZE + Nonce::INIT_SPACE,
-        seeds = [NONCE_SEED_PREFIX, sender_token_in_account.deref().owner.as_ref()],
+        seeds = [NONCE_SEED_PREFIX, params.sender.as_ref()],
         bump
     )]
     pub sender_nonce_account: Account<'info, Nonce>,
@@ -78,7 +82,7 @@ pub struct OpenOrder<'info> {
         space = ANCHOR_DISCRIMINATOR_SIZE + Order::<NativeOrder>::INIT_SPACE,
         seeds = [ORDER_SEED_PREFIX, &compute_order_id(&OrderData {
                     version: VERSION as u16,
-                    sender: sender_token_in_account.deref().owner.to_bytes(),
+                    sender: params.sender.to_bytes(),
                     nonce: sender_nonce_account.value,
                     origin_chain_id: global_account.chain_id,
                     dest_chain_id: params.dest_chain_id,
@@ -138,6 +142,12 @@ impl OpenOrder<'_> {
         
         require!(params.recipient != [0u8; 32], OrderBookError::InvalidRecipient);
 
+        // The order owner must be explicit; refunds and cancel rights follow it
+        require!(
+            params.sender != Pubkey::default(),
+            OrderBookError::InvalidSender
+        );
+
         // On SVM, we allow the user to specify the created at timestamp to be within a small window from the current time
         // so that the PDA address can be precomputed off-chain without having to guess the exact slot it will be included in.
         let current_timestamp = Clock::get()?.unix_timestamp as u64;
@@ -166,7 +176,7 @@ impl OpenOrder<'_> {
 
     #[access_control(ctx.accounts.validate(&params))]
     pub fn handler(ctx: Context<Self>, params: OrderParams) -> Result<()> {
-        let sender: Pubkey = (&ctx.accounts.sender_token_in_account).owner;
+        let sender: Pubkey = params.sender;
 
         // Populate the order data
         ctx.accounts.order.set_inner(Order {
