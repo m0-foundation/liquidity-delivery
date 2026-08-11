@@ -652,6 +652,54 @@ mod local_orders {
 
         Ok(())
     }
+
+    #[test]
+    fn test_success_with_distinct_payer_funder_and_sender() -> Result<(), Box<dyn Error>> {
+        let mut test = OrderBookTest::new()?;
+        test.initialize()?;
+
+        // Deposit-address topology: carol sponsors fees, alice's account funds the
+        // order and signs the transfer as token_authority, bob owns the order
+        let payer = test.get_user("carol");
+        let funder = test.get_user("alice");
+        let bob = test.get_user("bob");
+        let token_in_mint = test.get_mint("token-in-spl-6");
+        let funder_token_in_account = test.get_ata("token-in-spl-6", "alice");
+
+        let mut order_params = default_order_params(&test, "alice");
+        order_params.sender = bob.pubkey();
+
+        let (order_id, ix) = test.create_open_order_ix(
+            &payer.pubkey(),
+            &token_in_mint,
+            &funder_token_in_account,
+            Some(&funder.pubkey()),
+            &order_params,
+        )?;
+
+        let starting_balance = test.get_token_balance(&funder_token_in_account)?;
+
+        test.ctx
+            .execute_instruction(ix, &[&payer, &funder])?
+            .assert_success();
+
+        let (order_account, order) = test.get_native_order_account(&order_id)?;
+        assert_eq!(order.data.sender, bob.pubkey());
+        assert_eq!(order.data.payer, payer.pubkey());
+        assert_eq!(
+            test.get_token_balance(&funder_token_in_account)?,
+            starting_balance - order_params.amount_in
+        );
+        assert_eq!(
+            test.get_token_balance(&get_associated_token_address(
+                &order_account,
+                &token_in_mint
+            ))?,
+            order_params.amount_in
+        );
+
+        Ok(())
+    }
 }
 
 mod xchain_orders {
