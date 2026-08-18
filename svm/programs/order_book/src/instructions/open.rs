@@ -65,7 +65,7 @@ pub struct OpenOrder<'info> {
         token::mint = token_in_mint,
         token::token_program = token_in_program,
     )]
-    pub sender_token_in_account: InterfaceAccount<'info, TokenAccount>,
+    pub payer_token_in_account: InterfaceAccount<'info, TokenAccount>,
 
     #[account(
         init_if_needed,
@@ -230,7 +230,7 @@ impl OpenOrder<'_> {
 
         // Check that amount_in is actually received
         transfer_exact_tokens(
-            &ctx.accounts.sender_token_in_account,
+            &ctx.accounts.payer_token_in_account,
             &mut ctx.accounts.order_token_in_ata,
             params.amount_in,
             &ctx.accounts.token_in_mint,
@@ -241,7 +241,7 @@ impl OpenOrder<'_> {
         // Emit the event
         emit_cpi!(OrderOpened {
             order_id,
-            funder: ctx.accounts.sender_token_in_account.deref().owner,
+            funder: ctx.accounts.payer_token_in_account.deref().owner,
             sender,
             token_in: ctx.accounts.token_in_mint.key(),
             amount_in: params.amount_in,

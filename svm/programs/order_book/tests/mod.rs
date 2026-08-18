@@ -637,7 +637,7 @@ impl OrderBookTest {
         &self,
         payer: &Pubkey,
         token_in_mint: &Pubkey,
-        sender_token_in_account: &Pubkey,
+        payer_token_in_account: &Pubkey,
         token_authority: Option<&Pubkey>,
         order_params: &order_book::instructions::open::OrderParams,
     ) -> Result<([u8; 32], Instruction), Box<dyn Error>> {
@@ -690,7 +690,7 @@ impl OrderBookTest {
                 global_account,
                 destination_account,
                 token_in_mint: *token_in_mint,
-                sender_token_in_account: *sender_token_in_account,
+                payer_token_in_account: *payer_token_in_account,
                 sender_nonce_account,
                 order,
                 order_token_in_ata,
@@ -954,12 +954,12 @@ impl OrderBookTest {
     ) -> Result<[u8; 32], Box<dyn Error>> {
         let sender_keypair = self.users.get(sender).unwrap();
         let token_in_mint_pubkey = self.mints.get(token_in_mint).unwrap();
-        let sender_token_in_account = self.atas.get(&(token_in_mint, sender)).unwrap();
+        let payer_token_in_account = self.atas.get(&(token_in_mint, sender)).unwrap();
 
         let (order_id, ix) = self.create_open_order_ix(
             &sender_keypair.pubkey(),
             token_in_mint_pubkey,
-            sender_token_in_account,
+            payer_token_in_account,
             None,
             order_params,
         )?;

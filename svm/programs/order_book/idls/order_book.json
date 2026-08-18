@@ -930,7 +930,7 @@
           "name": "token_in_mint"
         },
         {
-          "name": "sender_token_in_account",
+          "name": "payer_token_in_account",
           "writable": true
         },
         {

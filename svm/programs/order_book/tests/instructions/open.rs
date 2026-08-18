@@ -59,7 +59,7 @@ mod local_orders {
 
         let alice = test.users.get("alice").unwrap();
         let token_in_mint = test.mints.get("token-in-spl-6").unwrap();
-        let sender_token_in_account = test.atas.get(&("token-in-spl-6", "alice")).unwrap();
+        let payer_token_in_account = test.atas.get(&("token-in-spl-6", "alice")).unwrap();
 
         // Prepare order parameters with amount_in set to zero
         let mut order_params = default_order_params(&test, "alice");
@@ -68,7 +68,7 @@ mod local_orders {
         let (_, ix) = test.create_open_order_ix(
             &alice.pubkey(),
             &token_in_mint,
-            &sender_token_in_account,
+            &payer_token_in_account,
             None,
             &order_params,
         )?;
@@ -88,7 +88,7 @@ mod local_orders {
 
         let alice = test.users.get("alice").unwrap();
         let token_in_mint = test.mints.get("token-in-spl-6").unwrap();
-        let sender_token_in_account = test.atas.get(&("token-in-spl-6", "alice")).unwrap();
+        let payer_token_in_account = test.atas.get(&("token-in-spl-6", "alice")).unwrap();
 
         // Prepare order parameters with amount_in set to zero
         let mut order_params = default_order_params(&test, "alice");
@@ -97,7 +97,7 @@ mod local_orders {
         let (_, ix) = test.create_open_order_ix(
             &alice.pubkey(),
             &token_in_mint,
-            &sender_token_in_account,
+            &payer_token_in_account,
             None,
             &order_params,
         )?;
@@ -122,7 +122,7 @@ mod local_orders {
 
         let alice = test.users.get("alice").unwrap();
         let token_in_mint = test.mints.get("token-in-spl-6").unwrap();
-        let sender_token_in_account = test.atas.get(&("token-in-spl-6", "alice")).unwrap();
+        let payer_token_in_account = test.atas.get(&("token-in-spl-6", "alice")).unwrap();
 
         // Prepare order parameters with fill deadline in the past
         let mut order_params = default_order_params(&test, "alice");
@@ -131,7 +131,7 @@ mod local_orders {
         let (_, ix) = test.create_open_order_ix(
             &alice.pubkey(),
             &token_in_mint,
-            &sender_token_in_account,
+            &payer_token_in_account,
             None,
             &order_params,
         )?;
@@ -153,7 +153,7 @@ mod local_orders {
 
         let alice = test.users.get("alice").unwrap();
         let token_in_mint = test.mints.get("token-in-spl-6").unwrap();
-        let sender_token_in_account = test.atas.get(&("token-in-spl-6", "alice")).unwrap();
+        let payer_token_in_account = test.atas.get(&("token-in-spl-6", "alice")).unwrap();
 
         // Prepare order parameters with created_at in the past
         let mut order_params = default_order_params(&test, "alice");
@@ -162,7 +162,7 @@ mod local_orders {
         let (_, ix) = test.create_open_order_ix(
             &alice.pubkey(),
             &token_in_mint,
-            &sender_token_in_account,
+            &payer_token_in_account,
             None,
             &order_params,
         )?;
@@ -181,7 +181,7 @@ mod local_orders {
 
         let alice = test.users.get("alice").unwrap();
         let token_in_mint = test.mints.get("token-in-spl-6").unwrap();
-        let sender_token_in_account = test.atas.get(&("token-in-spl-6", "alice")).unwrap();
+        let payer_token_in_account = test.atas.get(&("token-in-spl-6", "alice")).unwrap();
 
         // Prepare order parameters with created_at beyond the 5-minute window
         let mut order_params = default_order_params(&test, "alice");
@@ -191,7 +191,7 @@ mod local_orders {
         let (_, ix) = test.create_open_order_ix(
             &alice.pubkey(),
             &token_in_mint,
-            &sender_token_in_account,
+            &payer_token_in_account,
             None,
             &order_params,
         )?;
@@ -210,7 +210,7 @@ mod local_orders {
 
         let alice = test.users.get("alice").unwrap();
         let token_in_mint = test.mints.get("token-in-spl-6").unwrap();
-        let sender_token_in_account = test.atas.get(&("token-in-spl-6", "alice")).unwrap();
+        let payer_token_in_account = test.atas.get(&("token-in-spl-6", "alice")).unwrap();
 
         // Prepare order parameters with created_at exactly at current time
         let mut order_params = default_order_params(&test, "alice");
@@ -219,7 +219,7 @@ mod local_orders {
         let (_, ix) = test.create_open_order_ix(
             &alice.pubkey(),
             &token_in_mint,
-            &sender_token_in_account,
+            &payer_token_in_account,
             None,
             &order_params,
         )?;
@@ -236,7 +236,7 @@ mod local_orders {
 
         let alice = test.users.get("alice").unwrap();
         let token_in_mint = test.mints.get("token-in-spl-6").unwrap();
-        let sender_token_in_account = test.atas.get(&("token-in-spl-6", "alice")).unwrap();
+        let payer_token_in_account = test.atas.get(&("token-in-spl-6", "alice")).unwrap();
 
         // Prepare order parameters with created_at at the upper boundary (5 min)
         let mut order_params = default_order_params(&test, "alice");
@@ -246,7 +246,7 @@ mod local_orders {
         let (_, ix) = test.create_open_order_ix(
             &alice.pubkey(),
             &token_in_mint,
-            &sender_token_in_account,
+            &payer_token_in_account,
             None,
             &order_params,
         )?;
@@ -316,7 +316,7 @@ mod local_orders {
 
         let sender = test.users.get("alice").unwrap();
         let token_in_mint = test.mints.get("token-in-spl-6").unwrap();
-        let sender_token_in_account = test.atas.get(&("token-in-spl-6", "alice")).unwrap();
+        let payer_token_in_account = test.atas.get(&("token-in-spl-6", "alice")).unwrap();
 
         // Prepare order parameters with amount_in greater than balance
         let mut order_params = default_order_params(&test, "alice");
@@ -325,7 +325,7 @@ mod local_orders {
         let (_, ix) = test.create_open_order_ix(
             &sender.pubkey(),
             &token_in_mint,
-            &sender_token_in_account,
+            &payer_token_in_account,
             None,
             &order_params,
         )?;
@@ -338,7 +338,7 @@ mod local_orders {
     }
 
     #[test]
-    fn test_sender_token_in_account_wrong_mint_reverts() -> Result<(), Box<dyn Error>> {
+    fn test_payer_token_in_account_wrong_mint_reverts() -> Result<(), Box<dyn Error>> {
         // Setup test environment
         let mut test = OrderBookTest::new()?;
         test.initialize()?;
@@ -374,7 +374,7 @@ mod local_orders {
 
         let sender = test.users.get("alice").unwrap();
         let token_in_mint = test.mints.get("token-in-spl-6").unwrap();
-        let sender_token_in_account = test.atas.get(&("token-in-spl-6", "alice")).unwrap();
+        let payer_token_in_account = test.atas.get(&("token-in-spl-6", "alice")).unwrap();
 
         // Prepare order parameters with recipient same as solver
         let mut order_params = default_order_params(&test, "alice");
@@ -384,7 +384,7 @@ mod local_orders {
         let (_, ix) = test.create_open_order_ix(
             &sender.pubkey(),
             &token_in_mint,
-            &sender_token_in_account,
+            &payer_token_in_account,
             None,
             &order_params,
         )?;
@@ -404,7 +404,7 @@ mod local_orders {
 
         let sender = test.users.get("alice").unwrap();
         let token_in_mint = test.mints.get("token-in-spl-6").unwrap();
-        let sender_token_in_account = test.atas.get(&("token-in-spl-6", "alice")).unwrap();
+        let payer_token_in_account = test.atas.get(&("token-in-spl-6", "alice")).unwrap();
 
         // Prepare order parameters with token_out same as token_in
         let mut order_params = default_order_params(&test, "alice");
@@ -413,7 +413,7 @@ mod local_orders {
         let (_, ix) = test.create_open_order_ix(
             &sender.pubkey(),
             &token_in_mint,
-            &sender_token_in_account,
+            &payer_token_in_account,
             None,
             &order_params,
         )?;
@@ -433,7 +433,7 @@ mod local_orders {
 
         let sender = test.users.get("alice").unwrap();
         let token_in_mint = test.mints.get("token-in-spl-6").unwrap();
-        let sender_token_in_account = test.atas.get(&("token-in-spl-6", "alice")).unwrap();
+        let payer_token_in_account = test.atas.get(&("token-in-spl-6", "alice")).unwrap();
 
         // Prepare order parameters with amount_in greater than balance
         let order_params = default_order_params(&test, "alice");
@@ -441,13 +441,13 @@ mod local_orders {
         let (order_id, ix) = test.create_open_order_ix(
             &sender.pubkey(),
             &token_in_mint,
-            &sender_token_in_account,
+            &payer_token_in_account,
             None,
             &order_params,
         )?;
 
         // Cache the starting balance of the sender's token in account
-        let starting_balance = test.get_token_balance(&sender_token_in_account)?;
+        let starting_balance = test.get_token_balance(&payer_token_in_account)?;
 
         // Open the order
         test.ctx
@@ -470,7 +470,7 @@ mod local_orders {
         // Verify the sender's token in account balance decreased by amount_in
         // and the order's token in account balance increased by amount_in
         assert_eq!(
-            test.get_token_balance(&sender_token_in_account)?,
+            test.get_token_balance(&payer_token_in_account)?,
             starting_balance - order_params.amount_in
         );
         assert_eq!(
@@ -493,7 +493,7 @@ mod local_orders {
         // Setup the instruction
         let sender = test.users.get("alice").unwrap();
         let token_in_mint = test.mints.get("token-in-spl-6").unwrap();
-        let sender_token_in_account = test.atas.get(&("token-in-spl-6", "alice")).unwrap();
+        let payer_token_in_account = test.atas.get(&("token-in-spl-6", "alice")).unwrap();
         let delegated_authority = test.users.get("bob").unwrap();
 
         // Prepare order parameters with amount_in less than or equal to delegated amount
@@ -502,13 +502,13 @@ mod local_orders {
         let (order_id, ix) = test.create_open_order_ix(
             &sender.pubkey(),
             &token_in_mint,
-            &sender_token_in_account,
+            &payer_token_in_account,
             Some(&delegated_authority.pubkey()),
             &order_params,
         )?;
 
         // Cache the starting balance of the sender's token in account
-        let starting_balance = test.get_token_balance(&sender_token_in_account)?;
+        let starting_balance = test.get_token_balance(&payer_token_in_account)?;
 
         // Open the order using the delegated authority
         test.ctx
@@ -530,7 +530,7 @@ mod local_orders {
         // Verify the sender's token in account balance decreased by amount_in
         // and the order's token in account balance increased by amount_in
         assert_eq!(
-            test.get_token_balance(&sender_token_in_account)?,
+            test.get_token_balance(&payer_token_in_account)?,
             starting_balance - order_params.amount_in
         );
         assert_eq!(
@@ -552,13 +552,13 @@ mod local_orders {
         // Try to open an order
         let alice = test.get_user("alice");
         let token_in_mint = test.get_mint("token-in-spl-6");
-        let sender_token_in_account = test.get_ata("token-in-spl-6", "alice");
+        let payer_token_in_account = test.get_ata("token-in-spl-6", "alice");
         let order_params = default_order_params(&test, "alice");
 
         let (_, ix) = test.create_open_order_ix(
             &alice.pubkey(),
             &token_in_mint,
-            &sender_token_in_account,
+            &payer_token_in_account,
             None,
             &order_params,
         )?;
@@ -633,7 +633,7 @@ mod local_orders {
 
         let alice = test.get_user("alice");
         let token_in_mint = test.get_mint("token-in-spl-6");
-        let sender_token_in_account = test.get_ata("token-in-spl-6", "alice");
+        let payer_token_in_account = test.get_ata("token-in-spl-6", "alice");
 
         let mut order_params = default_order_params(&test, "alice");
         order_params.sender = anchor_litesvm::Pubkey::default();
@@ -641,7 +641,7 @@ mod local_orders {
         let (_, ix) = test.create_open_order_ix(
             &alice.pubkey(),
             &token_in_mint,
-            &sender_token_in_account,
+            &payer_token_in_account,
             None,
             &order_params,
         )?;
@@ -757,7 +757,7 @@ mod xchain_orders {
 
         let alice = test.users.get("alice").unwrap();
         let token_in_mint = test.mints.get("token-in-spl-6").unwrap();
-        let sender_token_in_account = test.atas.get(&("token-in-spl-6", "alice")).unwrap();
+        let payer_token_in_account = test.atas.get(&("token-in-spl-6", "alice")).unwrap();
 
         // Prepare order parameters with amount_in set to zero
         let mut order_params = default_order_params(&test, "alice");
@@ -766,7 +766,7 @@ mod xchain_orders {
         let (_, ix) = test.create_open_order_ix(
             &alice.pubkey(),
             &token_in_mint,
-            &sender_token_in_account,
+            &payer_token_in_account,
             None,
             &order_params,
         )?;
@@ -786,7 +786,7 @@ mod xchain_orders {
 
         let alice = test.users.get("alice").unwrap();
         let token_in_mint = test.mints.get("token-in-spl-6").unwrap();
-        let sender_token_in_account = test.atas.get(&("token-in-spl-6", "alice")).unwrap();
+        let payer_token_in_account = test.atas.get(&("token-in-spl-6", "alice")).unwrap();
 
         // Prepare order parameters with amount_in set to zero
         let mut order_params = default_order_params(&test, "alice");
@@ -795,7 +795,7 @@ mod xchain_orders {
         let (_, ix) = test.create_open_order_ix(
             &alice.pubkey(),
             &token_in_mint,
-            &sender_token_in_account,
+            &payer_token_in_account,
             None,
             &order_params,
         )?;
@@ -820,7 +820,7 @@ mod xchain_orders {
 
         let alice = test.users.get("alice").unwrap();
         let token_in_mint = test.mints.get("token-in-spl-6").unwrap();
-        let sender_token_in_account = test.atas.get(&("token-in-spl-6", "alice")).unwrap();
+        let payer_token_in_account = test.atas.get(&("token-in-spl-6", "alice")).unwrap();
 
         // Prepare order parameters with fill deadline in the past
         let mut order_params = default_order_params(&test, "alice");
@@ -829,7 +829,7 @@ mod xchain_orders {
         let (_, ix) = test.create_open_order_ix(
             &alice.pubkey(),
             &token_in_mint,
-            &sender_token_in_account,
+            &payer_token_in_account,
             None,
             &order_params,
         )?;
@@ -849,7 +849,7 @@ mod xchain_orders {
 
         let alice = test.users.get("alice").unwrap();
         let token_in_mint = test.mints.get("token-in-spl-6").unwrap();
-        let sender_token_in_account = test.atas.get(&("token-in-spl-6", "alice")).unwrap();
+        let payer_token_in_account = test.atas.get(&("token-in-spl-6", "alice")).unwrap();
 
         // Prepare order parameters
         let order_params = default_order_params(&test, "alice");
@@ -857,7 +857,7 @@ mod xchain_orders {
         let (_, mut ix) = test.create_open_order_ix(
             &alice.pubkey(),
             &token_in_mint,
-            &sender_token_in_account,
+            &payer_token_in_account,
             None,
             &order_params,
         )?;
@@ -880,7 +880,7 @@ mod xchain_orders {
 
         let alice = test.users.get("alice").unwrap();
         let token_in_mint = test.mints.get("token-in-spl-6").unwrap();
-        let sender_token_in_account = test.atas.get(&("token-in-spl-6", "alice")).unwrap();
+        let payer_token_in_account = test.atas.get(&("token-in-spl-6", "alice")).unwrap();
 
         // Prepare order parameters
         let mut order_params = default_order_params(&test, "alice");
@@ -889,7 +889,7 @@ mod xchain_orders {
         let (_, ix) = test.create_open_order_ix(
             &alice.pubkey(),
             &token_in_mint,
-            &sender_token_in_account,
+            &payer_token_in_account,
             None,
             &order_params,
         )?;
@@ -912,7 +912,7 @@ mod xchain_orders {
         // Get accounts for the instruction
         let alice = test.users.get("alice").unwrap();
         let token_in_mint = test.mints.get("token-in-spl-6").unwrap();
-        let sender_token_in_account = test.atas.get(&("token-in-spl-6", "alice")).unwrap();
+        let payer_token_in_account = test.atas.get(&("token-in-spl-6", "alice")).unwrap();
 
         // Prepare order parameters
         let order_params = default_order_params(&test, "alice");
@@ -920,7 +920,7 @@ mod xchain_orders {
         let (_, ix) = test.create_open_order_ix(
             &alice.pubkey(),
             &token_in_mint,
-            &sender_token_in_account,
+            &payer_token_in_account,
             None,
             &order_params,
         )?;
@@ -995,7 +995,7 @@ mod xchain_orders {
 
         let sender = test.users.get("alice").unwrap();
         let token_in_mint = test.mints.get("token-in-spl-6").unwrap();
-        let sender_token_in_account = test.atas.get(&("token-in-spl-6", "alice")).unwrap();
+        let payer_token_in_account = test.atas.get(&("token-in-spl-6", "alice")).unwrap();
 
         // Prepare order parameters with amount_in greater than balance
         let mut order_params = default_order_params(&test, "alice");
@@ -1004,7 +1004,7 @@ mod xchain_orders {
         let (_, ix) = test.create_open_order_ix(
             &sender.pubkey(),
             &token_in_mint,
-            &sender_token_in_account,
+            &payer_token_in_account,
             None,
             &order_params,
         )?;
@@ -1023,7 +1023,7 @@ mod xchain_orders {
 
         let sender = test.users.get("alice").unwrap();
         let token_in_mint = test.mints.get("token-in-spl-6").unwrap();
-        let sender_token_in_account = test.atas.get(&("token-in-spl-6", "alice")).unwrap();
+        let payer_token_in_account = test.atas.get(&("token-in-spl-6", "alice")).unwrap();
 
         // Prepare order parameters with recipient same as solver
         let mut order_params = default_order_params(&test, "alice");
@@ -1033,7 +1033,7 @@ mod xchain_orders {
         let (_, ix) = test.create_open_order_ix(
             &sender.pubkey(),
             &token_in_mint,
-            &sender_token_in_account,
+            &payer_token_in_account,
             None,
             &order_params,
         )?;
@@ -1053,7 +1053,7 @@ mod xchain_orders {
 
         let sender = test.users.get("alice").unwrap();
         let token_in_mint = test.mints.get("token-in-spl-6").unwrap();
-        let sender_token_in_account = test.atas.get(&("token-in-spl-6", "alice")).unwrap();
+        let payer_token_in_account = test.atas.get(&("token-in-spl-6", "alice")).unwrap();
 
         // Prepare order parameters with amount_in greater than balance
         let order_params = default_order_params(&test, "alice");
@@ -1061,13 +1061,13 @@ mod xchain_orders {
         let (order_id, ix) = test.create_open_order_ix(
             &sender.pubkey(),
             &token_in_mint,
-            &sender_token_in_account,
+            &payer_token_in_account,
             None,
             &order_params,
         )?;
 
         // Cache the starting balance of the sender's token in account
-        let starting_balance = test.get_token_balance(&sender_token_in_account)?;
+        let starting_balance = test.get_token_balance(&payer_token_in_account)?;
 
         // Open the order
         test.ctx
@@ -1090,7 +1090,7 @@ mod xchain_orders {
         // Verify the sender's token in account balance decreased by amount_in
         // and the order's token in account balance increased by amount_in
         assert_eq!(
-            test.get_token_balance(&sender_token_in_account)?,
+            test.get_token_balance(&payer_token_in_account)?,
             starting_balance - order_params.amount_in
         );
         assert_eq!(
@@ -1109,7 +1109,7 @@ mod xchain_orders {
 
         let sender = test.users.get("alice").unwrap();
         let token_in_mint = test.mints.get("token-in-spl-6").unwrap();
-        let sender_token_in_account = test.atas.get(&("token-in-spl-6", "alice")).unwrap();
+        let payer_token_in_account = test.atas.get(&("token-in-spl-6", "alice")).unwrap();
 
         // Prepare order parameters with amount_in greater than balance
         let mut order_params = default_order_params(&test, "alice");
@@ -1120,7 +1120,7 @@ mod xchain_orders {
         let (_, ix) = test.create_open_order_ix(
             &sender.pubkey(),
             &token_in_mint,
-            &sender_token_in_account,
+            &payer_token_in_account,
             None,
             &order_params,
         )?;
@@ -1145,7 +1145,7 @@ mod xchain_orders {
         // Setup the instruction
         let sender = test.users.get("alice").unwrap();
         let token_in_mint = test.mints.get("token-in-spl-6").unwrap();
-        let sender_token_in_account = test.atas.get(&("token-in-spl-6", "alice")).unwrap();
+        let payer_token_in_account = test.atas.get(&("token-in-spl-6", "alice")).unwrap();
         let delegated_authority = test.users.get("bob").unwrap();
 
         // Prepare order parameters with amount_in less than or equal to delegated amount
@@ -1154,13 +1154,13 @@ mod xchain_orders {
         let (order_id, ix) = test.create_open_order_ix(
             &sender.pubkey(),
             &token_in_mint,
-            &sender_token_in_account,
+            &payer_token_in_account,
             Some(&delegated_authority.pubkey()),
             &order_params,
         )?;
 
         // Cache the starting balance of the sender's token in account
-        let starting_balance = test.get_token_balance(&sender_token_in_account)?;
+        let starting_balance = test.get_token_balance(&payer_token_in_account)?;
 
         // Open the order using the delegated authority
         test.ctx
@@ -1182,7 +1182,7 @@ mod xchain_orders {
         // Verify the sender's token in account balance decreased by amount_in
         // and the order's token in account balance increased by amount_in
         assert_eq!(
-            test.get_token_balance(&sender_token_in_account)?,
+            test.get_token_balance(&payer_token_in_account)?,
             starting_balance - order_params.amount_in
         );
         assert_eq!(

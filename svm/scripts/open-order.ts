@@ -216,7 +216,7 @@ async function main() {
   const tokenInProgram = await detectTokenProgram(connection, tokenInMint);
   console.log(`Token program: ${tokenInProgram.equals(TOKEN_2022_PROGRAM_ID) ? "Token-2022" : "Token"}`);
 
-  const senderTokenInAccount = getAssociatedTokenAddressSync(
+  const payerTokenInAccount = getAssociatedTokenAddressSync(
     tokenInMint,
     payer.publicKey,
     false,
@@ -307,7 +307,7 @@ async function main() {
       globalAccount,
       destinationAccount: args.destChainId !== originChainId ? destinationAccount : null,
       tokenInMint,
-      senderTokenInAccount,
+      payerTokenInAccount,
       senderNonceAccount,
       order: orderPda,
       orderTokenInAta,
