@@ -233,7 +233,6 @@
       "accounts": [
         {
           "name": "signer",
-          "writable": true,
           "signer": true
         },
         {
@@ -274,10 +273,6 @@
         },
         {
           "name": "sender_token_in_ata",
-          "docs": [
-            "Note: created if missing so a refund never fails on a closed or",
-            "never-created sender token account (parity with ReportOrderCancel)"
-          ],
           "writable": true,
           "pda": {
             "seeds": [
@@ -334,14 +329,6 @@
         },
         {
           "name": "token_in_program"
-        },
-        {
-          "name": "associated_token_program",
-          "address": "ATokenGPvbdGVxr1b2hvZbsiqW5xWH25efTNsLJA8knL"
-        },
-        {
-          "name": "system_program",
-          "address": "11111111111111111111111111111111"
         },
         {
           "name": "event_authority",

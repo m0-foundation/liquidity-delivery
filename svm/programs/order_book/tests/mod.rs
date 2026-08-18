@@ -504,8 +504,6 @@ impl OrderBookTest {
             sender_token_in_ata,
             order_token_in_ata,
             token_in_program: anchor_spl::token::ID,
-            associated_token_program: anchor_spl::associated_token::ID,
-            system_program: anchor_lang::solana_program::system_program::ID,
         })
     }
 

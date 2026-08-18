@@ -69,7 +69,6 @@ pub struct CancelReported {
 #[derive(Accounts)]
 #[instruction(order_id: [u8; 32])]
 pub struct CancelNativeOrder<'info> {
-    #[account(mut)]
     pub signer: Signer<'info>,
 
     /// CHECK: The sender of the order, we don't read any data from here
@@ -99,11 +98,8 @@ pub struct CancelNativeOrder<'info> {
     )]
     pub token_in_mint: InterfaceAccount<'info, Mint>,
 
-    /// Note: created if missing so a refund never fails on a closed or
-    /// never-created sender token account (parity with ReportOrderCancel)
     #[account(
-        init_if_needed,
-        payer = signer,
+        mut,
         associated_token::mint = token_in_mint,
         associated_token::authority = sender,
         associated_token::token_program = token_in_program,
@@ -119,10 +115,6 @@ pub struct CancelNativeOrder<'info> {
     pub order_token_in_ata: InterfaceAccount<'info, TokenAccount>,
 
     pub token_in_program: Interface<'info, TokenInterface>,
-
-    pub associated_token_program: Program<'info, AssociatedToken>,
-
-    pub system_program: Program<'info, System>,
 }
 
 impl CancelNativeOrder<'_> {
