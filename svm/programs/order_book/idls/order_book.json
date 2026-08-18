@@ -1509,7 +1509,11 @@
       "discriminator": [143, 197, 147, 95, 106, 165, 50, 43]
     },
     {
-      "name": "Order",
+      "name": "NativeOrder",
+      "discriminator": [134, 173, 223, 185, 77, 86, 28, 51]
+    },
+    {
+      "name": "ForeignOrder",
       "discriminator": [134, 173, 223, 185, 77, 86, 28, 51]
     },
     {
