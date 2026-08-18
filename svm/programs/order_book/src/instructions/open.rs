@@ -15,6 +15,22 @@ use anchor_spl::{
 };
 use std::ops::Deref;
 
+/// Parameters required to open an order onchain
+///
+/// Note: addresses on the destination chain are stored as 32 bytes to support non-SVM chains
+/// as destinations
+///
+/// - `dest_chain_id`: destination chain ID where the order is to be filled
+/// - `created_at`: timestamp at which the client built the order
+/// - `fill_deadline`: timestamp by which the order must be filled on the destination chain
+/// - `token_out`: address of the output token on the destination chain
+/// - `amount_in`: amount of input token provided
+/// - `amount_out`: amount of output token expected
+/// - `recipient`: address to receive the funds on the destination chain
+/// - `solver`: address of the solver that will fill the order, or zero if any solver can fill
+/// - `sender`: address that will own the order (for cancellation rights and refunds). Tokens are
+///   pulled from `payer_token_in_account`, so the funder and the order owner may differ (e.g. a
+///   deposit address funding an order for an end user).
 #[derive(AnchorSerialize, AnchorDeserialize, Clone)]
 pub struct OrderParams {
     pub dest_chain_id: u32,
@@ -25,9 +41,6 @@ pub struct OrderParams {
     pub amount_out: u128,
     pub recipient: [u8; 32],
     pub solver: [u8; 32],
-    /// Owner of the order (cancel/refund rights).
-    /// Tokens are pulled from `sender_token_in_account`, so the funder and the
-    /// order owner may differ (e.g. a deposit address funding an order for an end user).
     pub sender: Pubkey,
 }
 
