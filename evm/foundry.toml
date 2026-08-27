@@ -8,6 +8,14 @@ optimizer_runs = 1000
 solc_version = "0.8.33"
 verbosity = 3
 fs_permissions = [{ access = "read-write", path = "./"}]
+# Context-scoped remappings for lib/safe-utils internal imports only.
+# The `lib/safe-utils/:` context prefix means these never affect import
+# resolution in src/, test/, script/, or any other lib.
+remappings = [
+    "lib/safe-utils/:forge-std/=lib/safe-utils/lib/forge-std/src/",
+    "lib/safe-utils/:safe-smart-account/=lib/safe-utils/lib/safe-smart-account/contracts/",
+    "lib/safe-utils/:solidity-http/=lib/safe-utils/lib/solidity-http/src/",
+]
 
 [lint]
 lint_on_build = false
@@ -41,6 +49,8 @@ base = "${BASE_RPC_URL}"
 moca = "${MOCA_RPC_URL}"
 citrea = "${CITREA_RPC_URL}"
 arbitrum = "${ARBITRUM_RPC_URL}"
+monad = "${MONAD_RPC_URL}"
+rise = "${RISE_RPC_URL}"
 
 [etherscan]
 mainnet = { key = "${ETHERSCAN_API_KEY}" }
@@ -49,3 +59,4 @@ arbitrum_sepolia = { key = "${ETHERSCAN_API_KEY}" }
 base_sepolia = { key = "${ETHERSCAN_API_KEY}" }
 base = { key = "${ETHERSCAN_API_KEY}" }
 arbitrum = { key = "${ETHERSCAN_API_KEY}" }
+monad = { key = "${ETHERSCAN_API_KEY}" }
