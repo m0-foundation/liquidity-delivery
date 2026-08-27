@@ -65,6 +65,7 @@ mod local_orders {
             amount_out: 1_000_000,
             recipient: test.get_user(sender).pubkey().clone().to_bytes(),
             solver: test.get_user("solver").pubkey().clone().to_bytes(),
+            sender: test.get_user(sender).pubkey(),
         }
     }
 
@@ -1394,6 +1395,7 @@ mod xchain_orders {
             amount_out: 1_000_000,
             recipient: test.get_user("alice").pubkey().to_bytes(),
             solver: test.get_user("solver").pubkey().to_bytes(),
+            sender: test.get_user("alice").pubkey(),
         };
         let order_id = test.open_order("alice", "token-in-spl-6", &order_params)?;
 
