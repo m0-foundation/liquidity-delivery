@@ -213,15 +213,15 @@ impl FillNativeOrder<'_> {
         }
 
         // Update the amount filled on the order
-        order.amount_in_released += amount_in_to_release as u128;
-        order.amount_out_filled += amount_out_to_fill as u128;
+        order.amount_in_released += amount_in_to_release;
+        order.amount_out_filled += amount_out_to_fill;
 
         // Transfer the output tokens from the solver to the recipient
         // Check that actual amount is received
         transfer_exact_tokens(
             &ctx.accounts.solver_token_out_account,
             &mut ctx.accounts.recipient_token_out_ata,
-            amount_out_to_fill,
+            amount_out_to_fill.try_into().map_err(|_| OrderBookError::InvalidFillAmount)?,
             &ctx.accounts.token_out_mint,
             &ctx.accounts.solver,
             &ctx.accounts.token_out_program,
@@ -232,7 +232,7 @@ impl FillNativeOrder<'_> {
         transfer_exact_tokens_from_program(
             &ctx.accounts.order_token_in_ata,
             &mut ctx.accounts.solver_token_in_account,
-            amount_in_to_release,
+            amount_in_to_release.try_into().map_err(|_| OrderBookError::InvalidFillAmount)?,
             &ctx.accounts.token_in_mint,
             &ctx.accounts.order.to_account_info(),
             &[&[ORDER_SEED_PREFIX, &order_id, &[ctx.accounts.order.bump]]],
@@ -430,7 +430,7 @@ impl<'info> FillForeignOrder<'info> {
         transfer_exact_tokens(
             &ctx.accounts.solver_token_out_account,
             &mut ctx.accounts.recipient_token_out_ata,
-            amount_out_to_fill,
+            amount_out_to_fill.try_into().map_err(|_| OrderBookError::InvalidFillAmount)?,
             &ctx.accounts.token_out_mint,
             &ctx.accounts.solver,
             &ctx.accounts.token_out_program,
@@ -688,7 +688,7 @@ fn calculate_fill(
     amount_in_released_: u128,
     amount_out_filled_: u128,
     amount_out_to_fill_: u128
-) -> Result<(bool, u64, u64)> {
+) -> Result<(bool, u128, u128)> {
     // Determine the amount out to fill as the minimum of the filler provided amount and the remaining unfilled amount
     let amount_out_remaining_ = total_amount_out_.checked_sub(amount_out_filled_).ok_or(OrderBookError::MathUnderflow)?;
     let full_fill_ = amount_out_to_fill_ >= amount_out_remaining_;
@@ -708,7 +708,7 @@ fn calculate_fill(
 
     Ok((
         full_fill_, 
-        amount_in_to_release_.try_into().map_err(|_| OrderBookError::InvalidFillAmount)?, 
-        amount_out_to_fill_.try_into().map_err(|_| OrderBookError::InvalidFillAmount)?
+        amount_in_to_release_, 
+        amount_out_to_fill_
     ))
 }
