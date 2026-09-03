@@ -711,4 +711,49 @@ fn calculate_fill(
         amount_in_to_release_, 
         amount_out_to_fill_
     ))
+}#[cfg(test)]
+mod tests {
+    use super::*;
+
+    // 1000 USDC (6 decimals) - fits in u64
+    const AMOUNT_6_DEC: u128 = 1_000_000_000;
+    // 1000 DAI (18 decimals) = 1e21 - exceeds u64::MAX (~1.8e19)
+    const AMOUNT_18_DEC: u128 = 1_000_000_000_000_000_000_000;
+
+    #[test]
+    fn calculate_fill_full_fill_amount_out_exceeds_u64_max() {
+        assert!(AMOUNT_18_DEC > u64::MAX as u128);
+
+        // Native order: amount_in on Solana (6 dec), amount_out on EVM (18 dec)
+        let (full_fill, amount_in_to_release, amount_out_to_fill) =
+            calculate_fill(AMOUNT_6_DEC, AMOUNT_18_DEC, 0, 0, AMOUNT_18_DEC).unwrap();
+
+        assert!(full_fill);
+        assert_eq!(u128::from(amount_in_to_release), AMOUNT_6_DEC);
+        assert_eq!(u128::from(amount_out_to_fill), AMOUNT_18_DEC);
+    }
+
+    #[test]
+    fn calculate_fill_partial_fill_amount_out_exceeds_u64_max() {
+        let half_out = AMOUNT_18_DEC / 2;
+        assert!(half_out > u64::MAX as u128);
+
+        let (full_fill, amount_in_to_release, amount_out_to_fill) =
+            calculate_fill(AMOUNT_6_DEC, AMOUNT_18_DEC, 0, 0, half_out).unwrap();
+
+        assert!(!full_fill);
+        assert_eq!(u128::from(amount_in_to_release), AMOUNT_6_DEC / 2);
+        assert_eq!(u128::from(amount_out_to_fill), half_out);
+    }
+
+    #[test]
+    fn calculate_fill_full_fill_amount_in_exceeds_u64_max() {
+        // Foreign order: amount_in on EVM (18 dec), amount_out on Solana (6 dec)
+        let (full_fill, amount_in_to_release, amount_out_to_fill) =
+            calculate_fill(AMOUNT_18_DEC, AMOUNT_6_DEC, 0, 0, AMOUNT_6_DEC).unwrap();
+
+        assert!(full_fill);
+        assert_eq!(u128::from(amount_in_to_release), AMOUNT_18_DEC);
+        assert_eq!(u128::from(amount_out_to_fill), AMOUNT_6_DEC);
+    }
 }
